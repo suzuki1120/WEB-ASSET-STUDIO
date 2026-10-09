@@ -257,11 +257,42 @@ export function modal({ title, children, footer, className, onClose } = {}) {
   return { dlg, close: () => dlg.close() };
 }
 
-export function section({ title, open = true, children } = {}) {
+/** 折りたたみセクション。summary を渡すと見出しの右に現在値の要約を出す（閉じていても設定が分かる）。 */
+export function section({ title, open = true, summary, children } = {}) {
   return h('details', { class: 'panel-section', open: !!open },
-    h('summary', null, h('span', null, title), icon('chevron-down', 14)),
+    h('summary', null,
+      h('span', { class: 'panel-section-title' }, title),
+      h('span', { class: 'panel-section-summary' }, summary ?? ''),
+      icon('chevron-down', 14),
+    ),
     h('div', { class: 'panel-section-body' }, children),
   );
+}
+
+/** section() の見出しの要約を書き換える。 */
+export function setSectionSummary(sectionEl, text) {
+  const el = sectionEl?.querySelector(':scope > summary > .panel-section-summary');
+  if (el) {
+    el.textContent = text ?? '';
+    el.title = text ?? '';
+  }
+}
+
+/**
+ * 値を選ぶ小さなボタン列（よく使う画面幅など）。押すと onPick(value) を呼ぶ。
+ * @param {{values: Array<number|string>, label?: string, format?: (v:any)=>string, onPick: (v:any)=>void}} opts
+ */
+export function chips({ values = [], label, format = (v) => String(v), onPick } = {}) {
+  const el = h('div', { class: 'chips', role: 'group', 'aria-label': label ?? null },
+    values.map((v) => h('button', { type: 'button', class: 'chip', onClick: () => onPick?.(v) }, format(v))),
+  );
+  return { el };
+}
+
+/** 数値入力に値を入れ、input イベントを発火させて onInput を通す。 */
+export function setInputValue(input, value) {
+  input.value = value == null ? '' : String(value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 export function notice(message, tone = 'info') {

@@ -27,7 +27,7 @@ export function createFileGrid(store, { renderOutputs, renderMeta, onRemove, onR
     const status = badge('', 'neutral');
     const stale = badge('設定が変更されました', 'warning');
     stale.classList.add('hidden');
-    const previewBtn = onPreview ? button({ icon: 'compare', variant: 'ghost', size: 'sm', title: '圧縮プレビュー', onClick: () => onPreview(store.get(item.id) || item) }) : null;
+    const previewBtn = onPreview ? button({ label: 'プレビュー', icon: 'compare', variant: 'ghost', size: 'sm', title: '現在の設定で1枚だけ変換し、元の画像と比べます', onClick: () => onPreview(store.get(item.id) || item) }) : null;
     previewBtn?.setAttribute('aria-label', `${item.name} の圧縮プレビュー`);
     const rerunBtn = onRerun ? button({ icon: 'refresh', variant: 'ghost', size: 'sm', title: '再変換', onClick: () => onRerun(store.get(item.id) || item) }) : null;
     rerunBtn?.setAttribute('aria-label', `${item.name} を再変換`);

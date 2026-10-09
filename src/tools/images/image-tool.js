@@ -10,17 +10,19 @@ import { createDropzone } from '../../ui/dropzone.js';
 import { createFileGrid } from '../../ui/filegrid.js';
 import { createActionBar } from '../../ui/actionbar.js';
 import {
-  PRESETS, loadSettings, saveSettings, validateSettings, defaultSettings, presetSettings,
+  PRESETS, loadSettings, saveSettings, validateSettings, defaultSettings, presetSettings, expandVariants,
 } from './image-settings.js';
 import { createImagePipeline } from './image-pipeline.js';
 import { buildPictureSnippet } from './snippets.js';
-import { totals } from './stats.js';
-import { buildSettingsSections } from './settings-panel.js';
+import { totals, itemStats } from './stats.js';
+import { buildSettingsSections, settingsSummary } from './settings-panel.js';
 import { openImagePreview } from './image-preview.js';
 
 const THUMB_SIZE = 96;
 const DECODE_ERROR = '画像を読み込めませんでした';
 const imageOutputs = (item) => (item.outputs ?? []).filter((o) => o.kind === 'image');
+/** 変換が必要な item（未変換・エラー・中止・設定変更済み）。 */
+const needsRun = (item) => item.status !== 'processing' && (item.status !== 'done' || item.stale);
 
 export function createTool(ctx) {
   const caps = ctx.caps;
@@ -89,7 +91,7 @@ export function createTool(ctx) {
   }
 
   /* ---------- 出力一覧 ---------- */
-  function outputRow(item, o) {
+  function outputRow(item, o, isBest) {
     const ratio = item.size ? o.bytes / item.size : null;
     const reduction = ratio == null ? null : h('span', { class: ['output-reduction', ratio <= 1 ? 'is-good' : 'is-bad'] }, formatPct(ratio));
     const save = button({
@@ -97,8 +99,8 @@ export function createTool(ctx) {
       onClick: () => downloadBlob(o.blob, o.filename),
     });
     save.setAttribute('aria-label', `${o.filename} を保存`);
-    return h('div', { class: 'output-row' },
-      h('span', { class: 'output-label', title: o.filename }, o.label),
+    return h('div', { class: ['output-row', isBest ? 'is-best' : ''] },
+      h('span', { class: 'output-label', title: o.filename }, o.label, isBest ? h('span', { class: 'output-best' }, '最小') : null),
       h('span', { class: 'output-size' }, formatBytes(o.bytes)),
       reduction ?? h('span'),
       save,
@@ -114,8 +116,9 @@ export function createTool(ctx) {
   function renderOutputs(item) {
     const outs = imageOutputs(item);
     if (!outs.length) return null;
+    const best = outs.length > 1 ? itemStats(item).best : null;
     const frag = document.createDocumentFragment();
-    for (const o of outs) frag.appendChild(outputRow(item, o));
+    for (const o of outs) frag.appendChild(outputRow(item, o, best && o.format === best.format && o.bytes === best.bytes));
     frag.appendChild(h('div', { class: 'filecard-footer' },
       button({ label: 'コードをコピー', icon: 'copy', size: 'sm', variant: 'ghost', onClick: () => copySnippet(item.id) }),
     ));
@@ -137,6 +140,8 @@ export function createTool(ctx) {
     else toast(`${count('done')}件の変換が完了しました`, { tone: 'success' });
   }
 
+  let runIds = [];
+
   async function runItems(items) {
     if (pipeline.isRunning()) return;
     if (!items.length) {
@@ -148,19 +153,28 @@ export function createTool(ctx) {
       toast(check.errors[0], { tone: 'warning' });
       return;
     }
+    runIds = items.map((it) => it.id);
     bar.setRunning(true);
+    refresh();
     try {
       await pipeline.run(items, settings);
       reportRun(items);
     } catch (err) {
       toast(err?.message || '変換に失敗しました', { tone: 'danger' });
     } finally {
+      runIds = [];
       bar.setRunning(false);
       refresh();
     }
   }
 
-  const runSelected = () => runItems(store.selected().filter((it) => it.status !== 'processing'));
+  // 未変換・設定変更済みのものだけ変換する。すべて変換済みなら選択分をすべて変換し直す
+  const runSelected = () => {
+    const sel = store.selected().filter((it) => it.status !== 'processing');
+    const pending = sel.filter(needsRun);
+    return runItems(pending.length ? pending : sel);
+  };
+  const rerunSelected = () => runItems(store.selected().filter((it) => it.status !== 'processing'));
 
   function zipEntries() {
     return store.selected().flatMap((it) => imageOutputs(it).map((o) => ({ name: o.filename, blob: o.blob })));
@@ -236,6 +250,7 @@ export function createTool(ctx) {
   const bar = createActionBar({
     primaryLabel: '変換を開始',
     onPrimary: runSelected,
+    onRerunAll: rerunSelected,
     onCancel: () => pipeline.cancel(),
     onZip: downloadAll,
     onSaveDir: canSaveToDirectory() ? saveAll : undefined,
@@ -243,19 +258,46 @@ export function createTool(ctx) {
     onSelectAll: (v) => store.selectAll(v),
   });
 
-  function summaryText(items, t) {
-    if (!t.files) return items.length ? `${items.length}ファイルを読み込み済み` : '画像を追加してください';
+  /** 変換前に「何ファイル出力されるか」を見積もる。サイズの数は画像の幅で変わるため、読み込み済みの寸法で数える。 */
+  function planText(pending) {
+    const formats = Object.values(settings.formats).filter((f) => f.enabled).length;
+    if (!formats) return '出力形式を選んでください';
+    let outputs = 0;
+    let maxSizes = 1;
+    for (const it of pending) {
+      const n = it.meta?.width ? expandVariants(settings, it.meta).length : formats;
+      outputs += n;
+      maxSizes = Math.max(maxSizes, Math.round(n / formats));
+    }
+    const sizes = maxSizes > 1 ? `最大${maxSizes}サイズ` : '1サイズ';
+    return `${outputs}ファイル出力予定（${pending.length}件 × ${formats}形式 × ${sizes}）`;
+  }
+
+  function summaryText(items) {
+    if (pipeline.isRunning() && runIds.length) {
+      const finished = runIds.filter((id) => ['done', 'error', 'cancelled'].includes(store.get(id)?.status)).length;
+      return `変換中 ${finished}/${runIds.length}件`;
+    }
+    const pending = store.selected().filter(needsRun);
+    if (pending.length) return planText(pending);
+    const t = totals(store.selected());
+    if (!t.files) return items.length ? '変換する画像を選んでください' : '';
     const ratio = t.ratio == null ? '' : ` (${formatPct(t.ratio)})`;
     return `${t.files}ファイル → ${t.outputs}出力 · ${formatBytes(t.inBytes)} → ${formatBytes(t.outBytes)}${ratio}`;
   }
 
   function refresh() {
     const items = store.items();
-    const t = totals(items);
+    const selected = store.selected();
     dropzone.setCompact(items.length > 0);
-    bar.setCounts({ selected: store.selected().length, total: items.length, outputs: t.outputs });
-    bar.setSummary(summaryText(items, t));
-    bar.setZipEnabled(store.selected().some((it) => imageOutputs(it).length > 0));
+    bar.setCounts({
+      selected: selected.length,
+      total: items.length,
+      outputs: totals(items).outputs,
+      pending: selected.filter(needsRun).length,
+    });
+    bar.setZipEnabled(selected.some((it) => imageOutputs(it).length > 0));
+    bar.setSummary(summaryText(items));
   }
 
   store.subscribe((e) => {
@@ -271,6 +313,8 @@ export function createTool(ctx) {
   function onSettingsChange() {
     saveSettings(settings);
     store.markStale();
+    refresh();
+    document.dispatchEvent(new CustomEvent('was:settings-change'));
   }
 
   function applyPreset(key) {
@@ -305,6 +349,7 @@ export function createTool(ctx) {
     group: 'convert',
     main,
     aside,
+    settingsSummary: () => settingsSummary(settings),
     activate() {
       if (active) return;
       active = true;

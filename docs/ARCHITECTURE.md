@@ -147,7 +147,10 @@ progressBar(value0to1) → { el, set(v) }
 toast(message, { tone?, duration?=3000 })
 confirmDialog({ title, message, confirmLabel, danger? }) → Promise<boolean>   // <dialog>
 modal({ title, children, footer?, className?, onClose? }) → { dlg, close() }    // 閉じると要素を破棄
-section({ title, open?=true, children }) → <details class="panel-section">
+section({ title, open?=true, summary?, children }) → <details class="panel-section">   // summary は見出し右の現在値の要約
+setSectionSummary(sectionEl, text)                 // section() の要約を書き換える
+chips({ values, label?, format?, onPick(v) }) → { el }   // よく使う値のボタン列
+setInputValue(input, value)                        // 値を入れて input イベントを発火する
 notice(message, tone) → .notice
 ```
 
@@ -161,7 +164,7 @@ createDropzone({ accept, multiple:true, label, sublabel, onFiles(files:File[]), 
 ```js
 createFileGrid(store, { renderOutputs(item) → Node|null, renderMeta(item) → string, onRemove(item), onRerun?(item), onThumb?(item), onPreview?(item) }) → { el }
 ```
-- `onPreview` を渡すと、カードに圧縮プレビューのボタン（`i-compare`）が出る（エラー状態では隠す）。
+- `onPreview` を渡すと、カードに「プレビュー」ボタン（`i-compare` + ラベル）が出る（エラー状態では隠す）。
 
 ## `src/ui/compare.js`
 ```js
@@ -181,8 +184,12 @@ createCompareView() → {
 
 ## `src/ui/actionbar.js`
 ```js
-createActionBar({ primaryLabel, onPrimary, onCancel, onZip, onSaveDir?, onClear, onSelectAll }) → { el, setSummary(text), setRunning(bool), setCounts({ selected, total, outputs }), setZipEnabled(bool) }
+createActionBar({ primaryLabel, onPrimary, onRerunAll?, onCancel, onZip, onSaveDir?, onClear, onSelectAll }) → { el, setSummary(text), setRunning(bool), setCounts({ selected, total, outputs, pending }), setZipEnabled(bool) }
 ```
+- `total === 0` のときはバー全体を隠す。
+- 主ボタンは状態で切り替わる。`run`（`pending > 0` などの通常時）→「{primaryLabel}（N件）」で `onPrimary`、`save`（選択が 1 件以上・`pending === 0`・ZIP 可）→「ZIPでダウンロード」で `onZip`、`running` →「キャンセル」で `onCancel`。`save` のときは補助ボタン「再変換」（`onRerunAll`、無ければ `onPrimary`）を出す。
+- `pending` は選択中で変換が必要な件数（未変換・エラー・中止・設定変更済み）。画像・動画ツールの `onPrimary` は pending の item だけを変換し、0 件なら選択中すべてを変換し直す。
+- <600px では補助ボタン群（クリア / フォルダに保存 / ZIP / 再変換）を「その他」メニュー（`.actionbar-secondary` のポップオーバー）にまとめる。
 
 ## ツール登録インターフェース
 
@@ -193,10 +200,11 @@ export function createTool(ctx /* { caps, store? } */) → {
   group: 'calc'|'convert',
   main: Node,                             // 中央
   aside: Node | null,                     // 右パネル（なければ 2 カラム）
+  settingsSummary?(): string,             // <900px の「設定」ボタンに出す一行要約
   activate?(), deactivate?()
 }
 ```
-`src/main.js` が `TOOLS = [percent, vw, ratio, clamp, images, video]` の順でサイドバーを生成し、`router.js` の `#/<id>` で切替。
+`src/main.js` が `TOOLS = [percent, vw, ratio, clamp, images, video]` の順でサイドバーを生成し、`router.js` の `#/<id>` で切替。<600px のナビ用の短い名前は `main.js` の `SHORT_TITLES` にある。ツールは設定を変えたら `document` に `was:settings-change` イベントを投げ、`main.js` が「設定」ボタンの要約を更新する。
 
 ## テーマ（`src/theme.js`）
 `initTheme()`：`localStorage['was.theme']` が 'light'|'dark' なら `<html data-theme>` に設定。無ければ OS 追従（data-theme なし）。`toggleTheme()`。

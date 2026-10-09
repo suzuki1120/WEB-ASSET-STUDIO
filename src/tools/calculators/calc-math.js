@@ -51,3 +51,15 @@ export function fluidClamp({ minPx, maxPx, minVw, maxVw, rootPx = 16, unit = 're
   const mid = `${fmt(base)}${unit} ${vw < 0 ? '-' : '+'} ${fmt(Math.abs(vw))}vw`;
   return `clamp(${fmt(lo)}${unit}, ${mid}, ${fmt(hi)}${unit})`;
 }
+
+/**
+ * fluidClamp() と同じ条件で、画面幅 vw(px) のときの実際のサイズ(px) を返す。入力が不正なら null。
+ * @param {{minPx:number, maxPx:number, minVw:number, maxVw:number}} opts
+ * @param {number} viewport
+ */
+export function clampAt({ minPx, maxPx, minVw, maxVw }, viewport) {
+  if (![minPx, maxPx, minVw, maxVw, viewport].every(isNum) || maxVw === minVw) return null;
+  const slope = (maxPx - minPx) / (maxVw - minVw);
+  const raw = minPx + (viewport - minVw) * slope;
+  return round3(Math.min(Math.max(raw, Math.min(minPx, maxPx)), Math.max(minPx, maxPx)));
+}

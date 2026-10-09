@@ -1,8 +1,8 @@
 // 画像変換の設定パネル（右パネル）。settings オブジェクトを直接書き換え、変更のたびに onChange を呼ぶ。
-import { h } from '../../lib/dom.js';
+import { h, icon } from '../../lib/dom.js';
 import { buildName } from '../../lib/naming.js';
 import {
-  button, field, numberInput, textInput, rangeField, switchField, select, segmented, checkbox, section, notice,
+  button, field, numberInput, textInput, rangeField, switchField, select, segmented, section, notice, setSectionSummary,
 } from '../../ui/components.js';
 import { PRESETS, parseWidths } from './image-settings.js';
 
@@ -65,8 +65,15 @@ function backgroundField(conf, onChange) {
   return { el, input };
 }
 
-/** 1 形式分の行。有効/無効と可逆圧縮の状態に応じて部品の有効状態を揃える。 */
-function formatRow({ key, label, conf, effortMax, note, onChange }) {
+const FORMAT_DEFS = [
+  { key: 'webp', label: 'WebP', effortMax: 6 },
+  { key: 'avif', label: 'AVIF', effortMax: 9, note: 'AVIFはエンコードに時間がかかります' },
+  { key: 'jpeg', label: 'JPEG' },
+  { key: 'png', label: 'PNG' },
+];
+
+/** 1 形式分の詳細設定。形式が有効なときだけ表示する。 */
+function formatDetail({ key, label, conf, effortMax, note, onChange }) {
   const quality = key === 'png' ? null : qualityRange(conf, onChange);
   const effort = effortMax ? effortRange(conf, effortMax, onChange) : null;
   const background = key === 'jpeg' ? backgroundField(conf, onChange) : null;
@@ -77,49 +84,50 @@ function formatRow({ key, label, conf, effortMax, note, onChange }) {
         checked: conf.lossless,
         onChange: (v) => {
           conf.lossless = v;
-          sync();
+          quality?.setDisabled(v);
           onChange();
         },
       })
     : null;
-
-  const sync = () => {
-    const on = conf.enabled;
-    quality?.setDisabled(!on || conf.lossless);
-    effort?.setDisabled(!on);
-    if (lossless) lossless.input.disabled = !on;
-    if (background) background.input.disabled = !on;
-  };
-  const enable = checkbox({
-    label,
-    checked: conf.enabled,
-    onChange: (v) => {
-      conf.enabled = v;
-      sync();
-      onChange();
-    },
-  });
-  sync();
-  const body = [quality?.el, lossless?.el, effort?.el, background?.el, note].filter(Boolean);
-  return h('div', { class: 'format-row', style: { display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' } }, enable.el, ...body);
+  quality?.setDisabled(!!conf.lossless);
+  const body = [
+    quality?.el, lossless?.el, effort?.el, background?.el,
+    key === 'png' ? h('p', { class: 'field-hint' }, '常に可逆圧縮です。設定項目はありません。') : null,
+    note ? notice(note, 'info') : null,
+  ].filter(Boolean);
+  return h('div', { class: 'format-detail' }, h('h3', { class: 'format-detail-title' }, label), ...body);
 }
 
 function formatsSection(settings, onChange) {
   const f = settings.formats;
-  const rows = [
-    formatRow({ key: 'webp', label: 'WebP', conf: f.webp, effortMax: 6, onChange }),
-    formatRow({
-      key: 'avif',
-      label: 'AVIF',
-      conf: f.avif,
-      effortMax: 9,
-      note: notice('AVIFはエンコードに時間がかかります', 'info'),
-      onChange,
-    }),
-    formatRow({ key: 'jpeg', label: 'JPEG', conf: f.jpeg, onChange }),
-    formatRow({ key: 'png', label: 'PNG', conf: f.png, onChange }),
-  ];
-  return section({ title: '出力形式', children: rows });
+  const empty = notice('出力形式を1つ以上選んでください', 'warning');
+  const details = new Map();
+  const toggles = FORMAT_DEFS.map((def) => {
+    const conf = f[def.key];
+    details.set(def.key, formatDetail({ ...def, conf, onChange }));
+    const btn = h('button', { type: 'button', class: 'chip chip-toggle', 'aria-pressed': String(!!conf.enabled) },
+      icon('check', 12), def.label);
+    btn.addEventListener('click', () => {
+      conf.enabled = !conf.enabled;
+      btn.setAttribute('aria-pressed', String(conf.enabled));
+      sync();
+      onChange();
+    });
+    return btn;
+  });
+  const sync = () => {
+    for (const def of FORMAT_DEFS) toggle(details.get(def.key), f[def.key].enabled);
+    toggle(empty, !FORMAT_DEFS.some((def) => f[def.key].enabled));
+  };
+  sync();
+  return section({
+    title: '出力形式',
+    children: [
+      h('div', { class: 'format-toggles', role: 'group', 'aria-label': '出力する形式' }, toggles),
+      empty,
+      ...details.values(),
+    ],
+  });
 }
 
 // ---- リサイズ ----
@@ -286,26 +294,78 @@ function snippetSection(settings, onChange) {
 
 // ---- プリセット ----
 
-function presetSection(onPreset) {
+function presetBar(onPreset) {
   const buttons = PRESET_KEYS.map((key) =>
     button({ label: PRESETS[key].label, variant: 'secondary', size: 'sm', onClick: () => onPreset(key) }),
   );
   const reset = button({ label: '既定に戻す', variant: 'ghost', size: 'sm', onClick: () => onPreset('reset') });
-  const row = h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' } }, ...buttons, reset);
-  return section({ title: 'プリセット', open: false, children: [row] });
+  return h('div', { class: 'panel-presets' },
+    h('div', { class: 'panel-presets-title' }, 'プリセット'),
+    h('div', { class: 'panel-presets-row' }, ...buttons, reset),
+  );
+}
+
+// ---- 見出しの要約 ----
+
+const FORMAT_LABELS = Object.fromEntries(FORMAT_DEFS.map((d) => [d.key, d.label]));
+
+function formatsSummary(settings) {
+  const list = FORMAT_DEFS
+    .filter((d) => settings.formats[d.key].enabled)
+    .map((d) => {
+      const c = settings.formats[d.key];
+      if (d.key === 'png') return 'PNG';
+      return c.lossless ? `${FORMAT_LABELS[d.key]} 可逆` : `${FORMAT_LABELS[d.key]} ${c.quality}`;
+    });
+  return list.length ? list.join(' · ') : '未選択';
+}
+
+function resizeSummary(r) {
+  const px = (n) => (n ? `${n}px` : '–');
+  switch (r.mode) {
+    case 'width': return `幅 ${px(r.width)}`;
+    case 'height': return `高さ ${px(r.height)}`;
+    case 'scale': return `倍率 ${r.scale ?? '–'}%`;
+    case 'box': {
+      const fit = { contain: '収める', cover: '切り抜き', fill: '引き伸ばし' }[r.fit] ?? '';
+      return `枠 ${r.width ?? '–'}×${r.height ?? '–'} ${fit}`;
+    }
+    default: return 'なし';
+  }
+}
+
+const srcsetSummary = (s) => (s.enabled ? `最大${s.widths.length + (s.includeOriginal ? 1 : 0)}サイズ` : 'オフ');
+
+/** 設定パネルを閉じていても内容が分かる一行要約（スマホの「設定」ボタンに出す）。 */
+export function settingsSummary(settings) {
+  const r = resizeSummary(settings.resize);
+  const parts = [formatsSummary(settings), r === 'なし' ? 'リサイズなし' : r];
+  if (settings.srcset.enabled) parts.push('srcset');
+  return parts.join(' · ');
 }
 
 /**
  * @param {{settings: object, onChange: () => void, onPreset: (key: string) => void}} opts
- * @returns {HTMLElement[]} 右パネルに並べるセクション
+ * @returns {HTMLElement[]} 右パネルに並べる要素（プリセット + 各セクション）
  */
 export function buildSettingsSections({ settings, onChange, onPreset }) {
-  return [
-    formatsSection(settings, onChange),
-    resizeSection(settings, onChange),
-    srcsetSection(settings, onChange),
-    namingSection(settings, onChange),
-    snippetSection(settings, onChange),
-    presetSection(onPreset),
-  ];
+  let summarize = () => {};
+  const changed = () => {
+    summarize();
+    onChange();
+  };
+  const formats = formatsSection(settings, changed);
+  const resize = resizeSection(settings, changed);
+  const srcset = srcsetSection(settings, changed);
+  const naming = namingSection(settings, changed);
+  const snippet = snippetSection(settings, changed);
+  summarize = () => {
+    setSectionSummary(formats, formatsSummary(settings));
+    setSectionSummary(resize, resizeSummary(settings.resize));
+    setSectionSummary(srcset, srcsetSummary(settings.srcset));
+    setSectionSummary(naming, settings.naming.pattern);
+    setSectionSummary(snippet, settings.snippet.pathPrefix);
+  };
+  summarize();
+  return [presetBar(onPreset), formats, resize, srcset, naming, snippet];
 }

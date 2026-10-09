@@ -6,6 +6,9 @@ import { createPercentTool, createVwTool, createRatioTool, createClampTool } fro
 
 initTheme();
 
+// 幅 <900px のナビで使う短いラベル
+const SHORT_TITLES = { percent: '%', vw: 'vw', ratio: '比率', clamp: 'clamp', images: '画像', video: '動画' };
+
 function placeholderTool({ id, title, subtitle, iconName }) {
   return {
     id,
@@ -44,6 +47,7 @@ async function boot() {
     const a = h('a', { class: 'nav-item', href: `#/${tool.id}`, dataset: { tool: tool.id }, title: tool.title },
       icon(tool.icon, 16),
       h('span', { class: 'nav-label' }, tool.title),
+      h('span', { class: 'nav-short', 'aria-hidden': 'true' }, SHORT_TITLES[tool.id] ?? tool.title),
     );
     a.setAttribute('aria-label', tool.title);
     a.setAttribute('aria-keyshortcuts', `Control+${i + 1} Meta+${i + 1}`);
@@ -66,10 +70,16 @@ async function boot() {
   const PANEL_KEY = 'was.panel.open';
   const readOpen = () => { try { return localStorage.getItem(PANEL_KEY) === '1'; } catch { return false; } };
   const writeOpen = (v) => { try { localStorage.setItem(PANEL_KEY, v ? '1' : '0'); } catch { /* 保存不可は無視 */ } };
+  const panelSummary = h('span', { class: 'panel-toggle-summary' });
   const panelToggle = h('button', { class: 'panel-toggle', type: 'button', 'aria-controls': 'tool-aside' },
     h('span', { class: 'panel-toggle-label' }, '設定'),
+    panelSummary,
     icon('chevron-down', 16),
   );
+  // 閉じていても現在の設定が分かるよう、ツールが返す要約を表示する
+  let currentTool = null;
+  const updatePanelSummary = () => { panelSummary.textContent = currentTool?.settingsSummary?.() ?? ''; };
+  document.addEventListener('was:settings-change', updatePanelSummary);
   const setPanelOpen = (open) => {
     asideEl.classList.toggle('is-open', open);
     panelToggle.setAttribute('aria-expanded', String(open));
@@ -86,6 +96,7 @@ async function boot() {
     tools: TOOLS,
     onChange(tool, prev) {
       prev?.deactivate?.();
+      currentTool = tool;
       navItems.forEach((a, id) => {
         const active = id === tool.id;
         a.classList.toggle('is-active', active);
@@ -105,6 +116,7 @@ async function boot() {
         appEl.classList.add('no-aside');
         panelToggle.hidden = true;
       }
+      updatePanelSummary();
       workspace.scrollTop = 0;
       window.scrollTo?.(0, 0);
       tool.activate?.();

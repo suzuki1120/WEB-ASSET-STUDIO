@@ -8,7 +8,7 @@ import { copyText } from '../../lib/clipboard.js';
 import { createStore } from '../../store.js';
 import { probeCapabilities } from '../../capabilities.js';
 import {
-  button, field, numberInput, rangeField, switchField, select, segmented, toast, confirmDialog, section, notice,
+  button, field, numberInput, rangeField, switchField, select, segmented, toast, confirmDialog, section, notice, setSectionSummary,
 } from '../../ui/components.js';
 import { createDropzone } from '../../ui/dropzone.js';
 import { createFileGrid } from '../../ui/filegrid.js';
@@ -28,6 +28,8 @@ const numOrNull = (input) => {
   return Number.isFinite(n) ? n : null;
 };
 const round2 = (n) => Math.round(n * 100) / 100;
+/** 変換が必要な item（未変換・エラー・中止・設定変更済み）。 */
+const needsRun = (item) => item.status !== 'processing' && (item.status !== 'done' || item.stale);
 const attrEscape = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 export function createTool(ctx) {
@@ -70,6 +72,8 @@ export function createTool(ctx) {
     store.markStale();
     sample.markStale();
     updateDerived();
+    updateCounts();
+    document.dispatchEvent(new CustomEvent('was:settings-change'));
   }
 
   /* ---------- メイン: ドロップゾーン・プレビュー ---------- */
@@ -301,20 +305,32 @@ export function createTool(ctx) {
       toast('トリムの終了位置は開始位置より後にしてください', { tone: 'danger' });
       return;
     }
+    runIds = items.map((i) => i.id);
     actionbar.setRunning(true);
+    updateCounts();
     try {
       const r = await pipeline.run(items, settings);
       if (r.cancelled) toast('変換を中止しました');
       else if (r.done) toast(`${r.done} 件の変換が完了しました`, { tone: 'success' });
     } finally {
+      runIds = [];
       actionbar.setRunning(false);
       updateCounts();
     }
   }
 
+  let runIds = [];
+  // 未変換・設定変更済みのものだけ変換する。すべて変換済みなら選択分をすべて変換し直す
+  const runSelected = () => {
+    const sel = store.selected().filter((i) => i.status !== 'processing');
+    const pending = sel.filter(needsRun);
+    return runItems(pending.length ? pending : sel);
+  };
+
   const actionbar = createActionBar({
     primaryLabel: '変換を開始',
-    onPrimary: () => runItems(store.selected().filter((i) => i.status !== 'processing')),
+    onPrimary: runSelected,
+    onRerunAll: () => runItems(store.selected().filter((i) => i.status !== 'processing')),
     onCancel: () => pipeline.cancel(),
     onZip: () => {
       const entries = outputEntries();
@@ -340,14 +356,31 @@ export function createTool(ctx) {
     onSelectAll: (checked) => store.selectAll(Boolean(checked)),
   });
 
+  function countSummary(selected, pending) {
+    if (pipeline.isRunning() && runIds.length) {
+      const finished = runIds.filter((id) => ['done', 'error', 'cancelled'].includes(store.get(id)?.status)).length;
+      return `変換中 ${finished}/${runIds.length}件`;
+    }
+    if (pending.length) return `${pending.length}件を変換予定（${outputSummary()}）`;
+    const outs = selected.flatMap((i) => i.outputs);
+    if (!outs.length) return selected.length ? '' : '変換する動画を選んでください';
+    const inBytes = selected.filter((i) => i.outputs.length).reduce((n, i) => n + (i.size || 0), 0);
+    const outBytes = outs.filter((o) => o.kind === 'video').reduce((n, o) => n + (o.bytes || 0), 0);
+    return `${outs.length}出力 · ${formatBytes(inBytes)} → ${formatBytes(outBytes)} (${formatPct(outBytes / inBytes)})`;
+  }
+
   function updateCounts() {
     const items = store.items();
+    const selected = items.filter((i) => i.selected);
+    const pending = selected.filter(needsRun);
     actionbar.setCounts({
-      selected: items.filter((i) => i.selected).length,
+      selected: selected.length,
       total: items.length,
       outputs: items.reduce((n, i) => n + i.outputs.length, 0),
+      pending: pending.length,
     });
-    actionbar.setZipEnabled(items.some((i) => i.outputs.length));
+    actionbar.setZipEnabled(selected.some((i) => i.outputs.length));
+    actionbar.setSummary(countSummary(selected, pending));
     dropzone.setCompact(items.length > 0);
   }
 
@@ -497,16 +530,43 @@ export function createTool(ctx) {
   });
   const secFps = section({ title: 'フレームレート', children: [fld('FPS', fpsSel.el, { input: fpsSel.input })] });
   const secBr = section({ title: 'ビットレート', children: [brSeg.el, presetField, customBr.el] });
-  const aside = h('div', { class: 'tool-aside' },
-    section({
-      title: '出力',
-      children: [fld('コンテナ', containerSeg.el), codecField, fld('変換方法', modeSeg.el), copyHint],
-    }),
-    secRes, secFps, secBr,
-    section({ title: '音声', children: [audioSeg.el, audioCodecField, audioBrField] }),
-    section({ title: 'ポスター画像', open: false, children: [posterSwitch.el, posterTime.el, fld('形式', posterFormat.el, { input: posterFormat.input }), posterQuality.el, posterWidth.el] }),
-    capsBox,
-  );
+  const secOut = section({
+    title: '出力',
+    children: [fld('コンテナ', containerSeg.el), codecField, fld('変換方法', modeSeg.el), copyHint],
+  });
+  const secAudio = section({ title: '音声', children: [audioSeg.el, audioCodecField, audioBrField] });
+  const secPoster = section({ title: 'ポスター画像', open: false, children: [posterSwitch.el, posterTime.el, fld('形式', posterFormat.el, { input: posterFormat.input }), posterQuality.el, posterWidth.el] });
+  const aside = h('div', { class: 'tool-aside' }, secOut, secRes, secFps, secBr, secAudio, secPoster, capsBox);
+
+  /* ---------- 見出しの要約 ---------- */
+  const BR_PRESET_LABELS = { low: '低', medium: '中', high: '高', very_high: '最高' };
+  const outputSummary = () => {
+    const parts = [settings.container === 'mp4' ? 'MP4' : 'WebM'];
+    parts.push(v.mode === 'copy' ? 'コピー' : VIDEO_CODEC_LABELS[v.codec] ?? v.codec);
+    return parts.join(' · ');
+  };
+  const resizeSummary = () => {
+    switch (r.mode) {
+      case 'width': return `幅 ${r.width ?? '–'}px`;
+      case 'height': return `高さ ${r.height ?? '–'}px`;
+      case 'scale': return `倍率 ${r.scale ?? '–'}%`;
+      case 'box': return `枠 ${r.width ?? '–'}×${r.height ?? '–'}`;
+      default: return '元のまま';
+    }
+  };
+  const audioSummary = () => {
+    if (a.mode === 'mute') return 'なし';
+    const codec = a.codec === 'auto' ? '自動' : AUDIO_CODEC_LABELS[a.codec] ?? a.codec;
+    return `${codec} · ${Math.round(a.bitrate / 1000)} kbps`;
+  };
+  function updateSummaries() {
+    setSectionSummary(secOut, outputSummary());
+    setSectionSummary(secRes, resizeSummary());
+    setSectionSummary(secFps, settings.video.fps ? `${settings.video.fps} fps` : '元のまま');
+    setSectionSummary(secBr, v.bitrateMode === 'custom' ? `${Math.round(v.bitrate / 1000)} kbps` : `プリセット ${BR_PRESET_LABELS[v.preset] ?? v.preset}`);
+    setSectionSummary(secAudio, audioSummary());
+    setSectionSummary(secPoster, p.enabled ? `${p.format.toUpperCase()} · ${p.time}秒` : 'オフ');
+  }
 
   function show(el, on) { el.style.display = on ? '' : 'none'; }
   function updateDerived() {
@@ -530,6 +590,7 @@ export function createTool(ctx) {
     for (const el of [posterTime.el, posterWidth.el, posterQuality.el]) show(el, p.enabled);
     show(posterFormat.el.closest('.field') ?? posterFormat.el, p.enabled);
     updateTrimBar();
+    updateSummaries();
   }
 
   function refreshCaps() {
@@ -550,7 +611,7 @@ export function createTool(ctx) {
   const onKey = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.isComposing && !document.querySelector('dialog[open]')) {
       e.preventDefault();
-      runItems(store.selected().filter((i) => i.status !== 'processing'));
+      runSelected();
     }
   };
 
@@ -566,6 +627,7 @@ export function createTool(ctx) {
     group: 'convert',
     main,
     aside,
+    settingsSummary: () => `${outputSummary()} · ${resizeSummary()} · 音声${a.mode === 'mute' ? 'なし' : 'あり'}`,
     activate() {
       active = true;
       document.addEventListener('keydown', onKey);
