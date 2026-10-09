@@ -28,7 +28,11 @@ export function createRouter({ tools, onChange }) {
   window.addEventListener('hashchange', () => {
     const tool = parse();
     if (tool) apply(tool);
-    else navigate(first.id);
+    else {
+      // 履歴を増やさずに置き換え、「戻る」で同じリダイレクトを繰り返さないようにする
+      window.history.replaceState(null, '', `#/${first.id}`);
+      apply(first);
+    }
   });
 
   return {

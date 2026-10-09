@@ -8,7 +8,7 @@ import { copyText } from '../../lib/clipboard.js';
 import { createStore } from '../../store.js';
 import { probeCapabilities } from '../../capabilities.js';
 import {
-  button, field, numberInput, rangeField, switchField, select, segmented, toast, confirmDialog, section, notice, setSectionSummary,
+  button, field, numberInput, rangeField, switchField, select, segmented, toast, confirmDialog, askSaveConflict, section, notice, setSectionSummary,
 } from '../../ui/components.js';
 import { createDropzone } from '../../ui/dropzone.js';
 import { createFileGrid } from '../../ui/filegrid.js';
@@ -28,6 +28,9 @@ const numOrNull = (input) => {
   return Number.isFinite(n) ? n : null;
 };
 const round2 = (n) => Math.round(n * 100) / 100;
+/** トリムは動画ごとに持つ（item.trim）。未設定なら全体。 */
+const NO_TRIM = Object.freeze({ start: 0, end: null });
+const trimOf = (item) => item?.trim ?? NO_TRIM;
 /** 変換が必要な item（未変換・エラー・中止・設定変更済み）。 */
 const needsRun = (item) => item.status !== 'processing' && (item.status !== 'done' || item.stale);
 const attrEscape = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -36,6 +39,7 @@ export function createTool(ctx) {
   const caps = ctx.caps;
   const store = ctx.store ?? createStore('video');
   const settings = loadSettings();
+  delete settings.trim; // 旧バージョンで保存された共通トリムは使わない
   const pipeline = createVideoPipeline({ store, caps });
 
   // プレビュー・サムネイルの URL は item.id と別の所有者で管理する（再変換の resetForRerun で解放されないように）
@@ -145,30 +149,38 @@ export function createTool(ctx) {
   }, trimFill);
   const trimText = h('span', { style: { fontSize: 'var(--text-xs)', color: 'var(--fg-2)' } });
 
-  const trimStart = numField('開始位置', { value: settings.trim.start, min: 0, step: 0.1, unit: '秒' }, (v) => {
-    settings.trim.start = v ?? 0;
-    changed();
-  });
-  const trimEnd = numField('終了位置', { value: settings.trim.end ?? '', min: 0, step: 0.1, unit: '秒', placeholder: '末尾まで' }, (v) => {
-    settings.trim.end = v;
-    changed();
-  }, '空欄で末尾まで');
+  /** プレビュー中の動画のトリムを変更する。変換済みならその動画だけ「設定変更あり」にする。 */
+  function setTrim(patch) {
+    const item = store.get(previewId);
+    if (!item) return;
+    const trim = { ...trimOf(item), ...patch };
+    store.update(item.id, { trim, stale: item.stale || item.status === 'done' });
+    sample.markStale();
+    updateTrimBar();
+    updateCounts();
+  }
+  const trimStart = numField('開始位置', { value: 0, min: 0, step: 0.1, unit: '秒' }, (v) => setTrim({ start: v ?? 0 }), 'プレビュー中の動画だけに適用');
+  const trimEnd = numField('終了位置', { value: '', min: 0, step: 0.1, unit: '秒', placeholder: '末尾まで' }, (v) => setTrim({ end: v }), '空欄で末尾まで');
+  function syncTrimInputs(item) {
+    const t = trimOf(item);
+    trimStart.ni.input.value = t.start || 0;
+    trimEnd.ni.input.value = t.end ?? '';
+  }
   const setFromPlayhead = (which) => {
     const t = round2(previewVideo.currentTime || 0);
     if (which === 'start') {
-      settings.trim.start = t;
       trimStart.ni.input.value = t;
+      setTrim({ start: t });
     } else {
-      settings.trim.end = t;
       trimEnd.ni.input.value = t;
+      setTrim({ end: t });
     }
-    changed();
   };
 
   const sample = createSamplePreview({
     caps,
     getItem: () => store.get(previewId),
-    getSettings: () => settings,
+    getSettings: () => ({ ...settings, trim: trimOf(store.get(previewId)) }),
     getPlayhead: () => previewVideo.currentTime || 0,
     getDuration: () => (Number.isFinite(previewVideo.duration) ? previewVideo.duration : 0),
   });
@@ -196,8 +208,9 @@ export function createTool(ctx) {
 
   function updateTrimBar() {
     const dur = previewDuration();
-    const start = Math.max(0, settings.trim.start || 0);
-    const end = settings.trim.end != null && settings.trim.end > start ? settings.trim.end : dur;
+    const trim = trimOf(store.get(previewId));
+    const start = Math.max(0, trim.start || 0);
+    const end = trim.end != null && trim.end > start ? trim.end : dur;
     if (dur > 0) {
       const l = Math.min(100, (start / dur) * 100);
       const w = Math.max(0.5, Math.min(100 - l, ((Math.min(end, dur) - start) / dur) * 100));
@@ -231,6 +244,7 @@ export function createTool(ctx) {
     itemSelect.input.value = item.id;
     if (previewVideo.dataset.itemId !== item.id) {
       sample.reset();
+      syncTrimInputs(item);
       if (!previewUrls.has(item.id)) {
         mediaIds.add(item.id);
         previewUrls.set(item.id, createUrl(item.file, mediaOwner(item.id)));
@@ -246,8 +260,9 @@ export function createTool(ctx) {
     const v = item.outputs.find((o) => o.kind === 'video');
     if (!v) return;
     const p = item.outputs.find((o) => o.kind === 'poster');
-    const attrs = [`src="${attrEscape(ASSET_PREFIX + encodeURI(v.filename))}"`];
-    if (p) attrs.push(`poster="${attrEscape(ASSET_PREFIX + encodeURI(p.filename))}"`);
+    // encodeURI は # や ? を残すため、ファイル名部分は encodeURIComponent で変換する
+    const attrs = [`src="${attrEscape(ASSET_PREFIX + encodeURIComponent(v.filename))}"`];
+    if (p) attrs.push(`poster="${attrEscape(ASSET_PREFIX + encodeURIComponent(p.filename))}"`);
     copyText(`<video ${attrs.join(' ')} autoplay muted loop playsinline></video>`, { successMessage: '<video> タグをコピーしました' });
   }
 
@@ -300,10 +315,17 @@ export function createTool(ctx) {
       toast('変換する動画を選択してください', { tone: 'warning' });
       return;
     }
-    const t = settings.trim;
-    if (t.end != null && t.end <= (t.start || 0)) {
-      toast('トリムの終了位置は開始位置より後にしてください', { tone: 'danger' });
-      return;
+    for (const item of items) {
+      const t = trimOf(item);
+      if (t.end != null && t.end <= (t.start || 0)) {
+        toast(`${item.name}: トリムの終了位置は開始位置より後にしてください`, { tone: 'danger' });
+        return;
+      }
+      const dur = item.meta?.duration;
+      if (dur > 0 && (t.start || 0) >= dur) {
+        toast(`${item.name}: トリムの開始位置が動画の長さ（${formatDuration(dur)}）を超えています`, { tone: 'danger' });
+        return;
+      }
     }
     runIds = items.map((i) => i.id);
     actionbar.setRunning(true);
@@ -335,14 +357,16 @@ export function createTool(ctx) {
     onZip: () => {
       const entries = outputEntries();
       if (!entries.length) return toast('ダウンロードできる変換結果がありません', { tone: 'warning' });
-      return downloadZip(entries, 'videos.zip');
+      return downloadZip(entries, 'videos.zip').catch((err) => {
+        toast(`ZIPを作成できませんでした: ${err?.message ?? err}`, { tone: 'danger' });
+      });
     },
     onSaveDir: canSaveToDirectory() ? async () => {
       const entries = outputEntries();
       if (!entries.length) return toast('保存できる変換結果がありません', { tone: 'warning' });
       try {
-        const n = await saveToDirectory(entries);
-        toast(`${n} 件を保存しました`, { tone: 'success' });
+        const n = await saveToDirectory(entries, { onConflict: askSaveConflict });
+        if (n) toast(`${n} 件を保存しました`, { tone: 'success' });
       } catch (err) {
         if (err?.name !== 'AbortError') toast(`保存に失敗しました: ${err.message}`, { tone: 'danger' });
       }
@@ -511,7 +535,7 @@ export function createTool(ctx) {
     checked: p.enabled,
     onChange: () => { p.enabled = posterSwitch.input.checked; changed(); },
   });
-  const posterTime = numField('時刻', { value: p.time, min: 0, step: 0.1, unit: '秒' }, (val) => { p.time = val ?? 0; changed(); });
+  const posterTime = numField('時刻', { value: p.time, min: 0, step: 0.1, unit: '秒' }, (val) => { p.time = val ?? 0; changed(); }, 'トリムの開始位置からの秒数');
   const posterFormat = select({
     options: [{ value: 'jpeg', label: 'JPEG' }, { value: 'webp', label: 'WebP' }, { value: 'avif', label: 'AVIF' }],
     value: p.format,

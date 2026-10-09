@@ -1,4 +1,5 @@
 const abortError = (msg = 'Cancelled') => new DOMException(msg, 'AbortError');
+const CANCEL_GRACE_MS = 300;
 
 /**
  * モジュール Worker のプール。ジョブは jobId で Worker とやり取りする。
@@ -87,6 +88,15 @@ export function createPool({ url, size = 2, type = 'module' }) {
         settle(job, null, () => job.reject(abortError()));
       } else {
         job.slot.worker.postMessage({ jobId: job.id, type: 'cancel' });
+        // 同期処理（WASM エンコードなど）の最中は cancel を受け取れないため、少し待って Worker ごと終了する
+        setTimeout(() => {
+          if (job.finished) return;
+          const slot = job.slot;
+          const i = slots.indexOf(slot);
+          if (i >= 0) slots.splice(i, 1);
+          slot.worker.terminate();
+          settle(job, null, () => job.reject(abortError()));
+        }, CANCEL_GRACE_MS);
       }
     }
     return { promise, cancel };

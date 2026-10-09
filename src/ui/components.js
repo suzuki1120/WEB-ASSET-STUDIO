@@ -227,10 +227,70 @@ export function confirmDialog({ title, message, confirmLabel = 'OK', cancelLabel
       resolve(dlg.returnValue === 'ok');
       dlg.remove();
     });
-    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close('cancel'); });
+    dlg.addEventListener('click', (e) => {
+      if (e.target !== dlg) return;
+      // dialog 自身の余白クリックでも target は dlg になるため、枠の外かどうかで判定する
+      const r = dlg.getBoundingClientRect();
+      const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (!inside) dlg.close('cancel');
+    });
     document.body.appendChild(dlg);
     dlg.showModal();
   });
+}
+
+/**
+ * 3 つ以上の選択肢を出す確認ダイアログ。選んだ value、Esc や枠外クリックでは null を返す。
+ * @param {{title:string, message?:string, choices:{value:string, label:string, variant?:string}[]}} opts
+ * @returns {Promise<string|null>}
+ */
+export function choiceDialog({ title, message, choices = [] } = {}) {
+  return new Promise((resolve) => {
+    if (typeof HTMLDialogElement === 'undefined') {
+      // 代替: OK を最後の選択肢、キャンセルを null とみなす
+      resolve(window.confirm(`${title}\n${message || ''}`) ? choices.at(-1)?.value ?? null : null);
+      return;
+    }
+    const dlg = h('dialog', { class: 'confirm', 'aria-labelledby': 'choice-title' },
+      h('h2', { class: 'confirm-title', id: 'choice-title' }, title),
+      message ? h('p', { class: 'confirm-message' }, message) : null,
+      h('div', { class: 'confirm-actions' },
+        choices.map((c) => button({ label: c.label, variant: c.variant || 'secondary', onClick: () => dlg.close(c.value) })),
+      ),
+    );
+    dlg.addEventListener('close', () => {
+      const v = dlg.returnValue;
+      resolve(choices.some((c) => c.value === v) ? v : null);
+      dlg.remove();
+    });
+    dlg.addEventListener('click', (e) => {
+      if (e.target !== dlg) return;
+      const r = dlg.getBoundingClientRect();
+      const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (!inside) dlg.close('');
+    });
+    document.body.appendChild(dlg);
+    dlg.showModal();
+  });
+}
+
+/**
+ * フォルダ保存で同名ファイルがあったときの確認。saveToDirectory の onConflict に渡す。
+ * @param {string[]} names 保存先に既にあるファイル名
+ * @returns {Promise<'overwrite'|'rename'|'cancel'>}
+ */
+export async function askSaveConflict(names) {
+  const shown = names.slice(0, 3).join('、') + (names.length > 3 ? ` ほか ${names.length - 3} 件` : '');
+  const v = await choiceDialog({
+    title: '同じ名前のファイルがあります',
+    message: `保存先に ${names.length} 件の同名ファイルがあります（${shown}）。上書きするか、別名（-2 などを付けた名前）で保存するかを選んでください。`,
+    choices: [
+      { value: 'cancel', label: 'キャンセル', variant: 'ghost' },
+      { value: 'rename', label: '別名で保存', variant: 'secondary' },
+      { value: 'overwrite', label: '上書きする', variant: 'danger' },
+    ],
+  });
+  return v === 'overwrite' || v === 'rename' ? v : 'cancel';
 }
 
 /**

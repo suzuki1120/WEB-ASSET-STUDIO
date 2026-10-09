@@ -86,8 +86,11 @@ export function createImagePipeline({ store, caps }) {
         if (v) addOutput(item, settings, v, msg);
       } else if (msg.type === 'progress') {
         safeUpdate(item.id, { progress: msg.total ? msg.done / msg.total : 0 });
+      } else if (msg.type === 'done') {
+        state.done = true;
       } else if (msg.type === 'error') {
-        state.error = msg.message;
+        // 中止後に Worker が送る終了通知（error）はエラーとして扱わない
+        if (!state.cancelled) state.error = msg.message;
       } else if (msg.type === 'cancelled') {
         state.cancelled = true;
       }
@@ -135,7 +138,7 @@ export function createImagePipeline({ store, caps }) {
 
   async function runItem(item, settings, signal) {
     safeUpdate(item.id, { status: 'processing', progress: 0, error: null });
-    const state = { error: null, cancelled: false, inline: false };
+    const state = { error: null, cancelled: false, done: false, inline: false };
     try {
       const meta = await ensureMeta(item);
       const variants = expandVariants(settings, meta);
@@ -153,20 +156,25 @@ export function createImagePipeline({ store, caps }) {
 
   function finishItem(item, state) {
     if (state.error) safeUpdate(item.id, { status: 'error', error: state.error });
-    else if (state.cancelled || cancelled) safeUpdate(item.id, { status: 'cancelled' });
-    else safeUpdate(item.id, { status: 'done', progress: 1 });
+    else if (state.done) safeUpdate(item.id, { status: 'done', progress: 1 });
+    else safeUpdate(item.id, { status: 'cancelled' });
   }
 
-  /** バッチ全体でファイル名の重複を解消する。 */
+  /** 今回の出力名を、前回までに変換済みの出力名とも重ならないようにする（既存の名前を優先する）。 */
   function dedupeBatch(items) {
+    const batchIds = new Set(items.map((it) => it.id));
     const rows = [];
+    for (const item of store.items()) {
+      if (batchIds.has(item.id)) continue;
+      for (const o of item.outputs ?? []) if (o.kind === 'image') rows.push({ o, fixed: true });
+    }
     for (const item of items) {
-      for (const o of store.get(item.id)?.outputs ?? []) if (o.kind === 'image') rows.push({ item, o });
+      for (const o of store.get(item.id)?.outputs ?? []) if (o.kind === 'image') rows.push({ o, fixed: false });
     }
     const names = dedupeNames(rows.map((r) => r.o.filename));
     const renamed = new Map();
     rows.forEach((r, i) => {
-      if (names[i] !== r.o.filename) renamed.set(r.o.id, names[i]);
+      if (!r.fixed && names[i] !== r.o.filename) renamed.set(r.o.id, names[i]);
     });
     if (!renamed.size) return;
     for (const item of items) {

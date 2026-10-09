@@ -1,5 +1,5 @@
 import { loadFflate } from './vendor.js';
-import { dedupeNames } from './naming.js';
+import { dedupeNames, stripExt } from './naming.js';
 import { escapeFilename } from './dom.js';
 
 /** Blob を anchor クリックで保存する。URL は少し後に解放する。 */
@@ -56,15 +56,55 @@ export function canSaveToDirectory() {
   return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 }
 
+async function fileExists(dir, name) {
+  try {
+    await dir.getFileHandle(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 保存先の既存ファイルとも重ならない名前に付け替える（-2, -3 を付ける）。 */
+async function renameAgainstDir(dir, names, conflicts) {
+  const taken = new Set(names.map((n) => n.toLowerCase()));
+  const out = [];
+  for (const name of names) {
+    if (!conflicts.has(name)) {
+      out.push(name);
+      continue;
+    }
+    const base = stripExt(name);
+    const ext = name.slice(base.length);
+    let n = 2;
+    let candidate;
+    do candidate = `${base}-${n++}${ext}`;
+    while (taken.has(candidate.toLowerCase()) || (await fileExists(dir, candidate)));
+    taken.add(candidate.toLowerCase());
+    out.push(candidate);
+  }
+  return out;
+}
+
 /**
  * 選択したフォルダへファイルを書き込み、保存件数を返す。キャンセル時は 0。
+ * 同名ファイルがあると onConflict(names) を呼び、'overwrite' / 'rename' / 'cancel' で扱いを決める。
+ * onConflict を省略すると上書きせず別名で保存する。
  * @param {{name:string, blob:Blob}[]} entries
+ * @param {{onConflict?: (names: string[]) => Promise<'overwrite'|'rename'|'cancel'>}} [opts]
  * @returns {Promise<number>}
  */
-export async function saveToDirectory(entries) {
+export async function saveToDirectory(entries, { onConflict } = {}) {
   try {
     const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
-    const names = safeNames(entries);
+    let names = safeNames(entries);
+    const conflicts = new Set();
+    for (const name of names) if (await fileExists(dir, name)) conflicts.add(name);
+    if (conflicts.size) {
+      const choice = onConflict ? await onConflict([...conflicts]) : 'rename';
+      if (choice === 'cancel') return 0;
+      if (choice === 'rename') names = await renameAgainstDir(dir, names, conflicts);
+    }
     for (let i = 0; i < entries.length; i++) {
       const handle = await dir.getFileHandle(names[i], { create: true });
       const writable = await handle.createWritable();

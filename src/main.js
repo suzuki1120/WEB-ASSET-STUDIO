@@ -50,7 +50,7 @@ async function boot() {
       h('span', { class: 'nav-short', 'aria-hidden': 'true' }, SHORT_TITLES[tool.id] ?? tool.title),
     );
     a.setAttribute('aria-label', tool.title);
-    a.setAttribute('aria-keyshortcuts', `Control+${i + 1} Meta+${i + 1}`);
+    a.setAttribute('aria-keyshortcuts', `Alt+${i + 1}`);
     (navHosts[tool.group] || navHosts.convert).appendChild(a);
     navItems.set(tool.id, a);
   });
@@ -124,11 +124,14 @@ async function boot() {
   });
   router.start();
 
-  // ---- キーボード: Cmd/Ctrl + 1..6 ----
+  // ---- キーボード: Alt(Option) + 1..6 ----
+  // Cmd/Ctrl + 数字はブラウザのタブ切替に予約されていて止められないため、Alt を使う。
+  // Mac の Option + 数字は e.key が記号になるので、物理キー（e.code）で判定する
   document.addEventListener('keydown', (e) => {
-    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
-    const n = Number(e.key);
-    if (Number.isInteger(n) && n >= 1 && n <= TOOLS.length) {
+    if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.isComposing) return;
+    const m = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
+    const n = m ? Number(m[1]) : NaN;
+    if (n >= 1 && n <= TOOLS.length) {
       e.preventDefault();
       router.navigate(TOOLS[n - 1].id);
     }

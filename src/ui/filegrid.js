@@ -78,7 +78,7 @@ export function createFileGrid(store, { renderOutputs, renderMeta, onRemove, onR
       else r.thumb.appendChild(icon(item.kind === 'video' ? 'video' : 'image', 20));
     }
 
-    const sig = `${item.status}|${(item.outputs || []).map((o) => o.id).join(',')}`;
+    const sig = `${item.status}|${(item.outputs || []).map((o) => `${o.id}:${o.filename}`).join(',')}`;
     if (sig !== r.outSig) {
       r.outSig = sig;
       r.outputs.textContent = '';

@@ -15,11 +15,19 @@ export function toVw(viewport, target) {
 
 const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
 
-/** 幅と高さを最大公約数で約分する。入力が不正なら null。 */
+/** 小数点以下の桁数（最大 3 桁）。 */
+const decimals = (n) => {
+  const s = String(n);
+  const i = s.indexOf('.');
+  return i < 0 ? 0 : Math.min(3, s.length - i - 1);
+};
+
+/** 幅と高さを最大公約数で約分する。小数は整数に直してから約分する（1.5 × 1 → 3 / 2）。入力が不正なら null。 */
 export function aspectRatio(w, h) {
   if (!isNum(w) || !isNum(h)) return null;
-  const rw = Math.round(w);
-  const rh = Math.round(h);
+  const k = 10 ** Math.max(decimals(w), decimals(h));
+  const rw = Math.round(w * k);
+  const rh = Math.round(h * k);
   if (rw <= 0 || rh <= 0) return null;
   const g = gcd(rw, rh);
   const rw2 = rw / g;
@@ -34,7 +42,7 @@ export const remToPx = (rem, root = 16) => rem * root;
 
 /**
  * 画面幅 minVw〜maxVw の間でサイズを線形に変化させる clamp() を返す。入力が不正なら null。
- * 例: "clamp(1.000rem, 0.750rem + 0.833vw, 1.500rem)"
+ * 例: "clamp(1rem, 0.8333rem + 0.8333vw, 1.5rem)"
  * @param {{minPx:number, maxPx:number, minVw:number, maxVw:number, rootPx?:number, unit?:'rem'|'px'}} opts
  * @returns {string|null}
  */
@@ -43,7 +51,11 @@ export function fluidClamp({ minPx, maxPx, minVw, maxVw, rootPx = 16, unit = 're
   const slope = (maxPx - minPx) / (maxVw - minVw);
   const intercept = minPx - minVw * slope;
   const conv = (px) => (unit === 'rem' ? px / rootPx : px);
-  const fmt = (n) => (Math.round(n * 1000) / 1000).toFixed(3);
+  // 小数 4 桁まで（3 桁だと 17px → 1.063rem = 17.008px のように端の値がずれる）。末尾の 0 は省く
+  const fmt = (n) => {
+    const r = Math.round(n * 10000) / 10000;
+    return String(Object.is(r, -0) ? 0 : r);
+  };
   const lo = conv(Math.min(minPx, maxPx));
   const hi = conv(Math.max(minPx, maxPx));
   const base = conv(intercept);

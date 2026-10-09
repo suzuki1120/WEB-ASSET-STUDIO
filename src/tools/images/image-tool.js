@@ -5,7 +5,7 @@ import { formatBytes, formatPct, formatDims } from '../../lib/format.js';
 import { downloadBlob, downloadZip, canSaveToDirectory, saveToDirectory } from '../../lib/download.js';
 import { copyText } from '../../lib/clipboard.js';
 import { createStore } from '../../store.js';
-import { button, toast, confirmDialog } from '../../ui/components.js';
+import { button, toast, confirmDialog, askSaveConflict } from '../../ui/components.js';
 import { createDropzone } from '../../ui/dropzone.js';
 import { createFileGrid } from '../../ui/filegrid.js';
 import { createActionBar } from '../../ui/actionbar.js';
@@ -141,6 +141,7 @@ export function createTool(ctx) {
   }
 
   let runIds = [];
+  let changedDuringRun = false;
 
   async function runItems(items) {
     if (pipeline.isRunning()) return;
@@ -157,12 +158,15 @@ export function createTool(ctx) {
     bar.setRunning(true);
     refresh();
     try {
-      await pipeline.run(items, settings);
+      // 実行中に設定を変えても、この回は開始時点の設定で統一して変換する
+      await pipeline.run(items, structuredClone(settings));
+      if (changedDuringRun) store.markStale();
       reportRun(items);
     } catch (err) {
       toast(err?.message || '変換に失敗しました', { tone: 'danger' });
     } finally {
       runIds = [];
+      changedDuringRun = false;
       bar.setRunning(false);
       refresh();
     }
@@ -194,7 +198,7 @@ export function createTool(ctx) {
     const entries = zipEntries();
     if (!entries.length) return toast('保存できる変換結果がありません', { tone: 'warning' });
     try {
-      const n = await saveToDirectory(entries);
+      const n = await saveToDirectory(entries, { onConflict: askSaveConflict });
       if (n) toast(`${n}件をフォルダに保存しました`, { tone: 'success' });
     } catch (err) {
       toast(`フォルダに保存できませんでした: ${err?.message ?? err}`, { tone: 'danger' });
@@ -215,7 +219,8 @@ export function createTool(ctx) {
 
   /* ---------- 画面 ---------- */
   const dropzone = createDropzone({
-    accept: 'image/*',
+    // OS によっては MIME が空になるため、拡張子でも受け付ける
+    accept: 'image/*,.jpg,.jpeg,.png,.webp,.avif,.gif',
     multiple: true,
     paste: true,
     label: '画像をドロップ、またはクリックして選択',
@@ -313,6 +318,7 @@ export function createTool(ctx) {
   function onSettingsChange() {
     saveSettings(settings);
     store.markStale();
+    if (pipeline.isRunning()) changedDuringRun = true;
     refresh();
     document.dispatchEvent(new CustomEvent('was:settings-change'));
   }

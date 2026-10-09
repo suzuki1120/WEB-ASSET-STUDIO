@@ -79,13 +79,11 @@ export function probeCapabilities() {
     caps.mediaRecorderMimes = typeof MediaRecorder === 'undefined'
       ? []
       : MIME_CANDIDATES.filter((m) => MediaRecorder.isTypeSupported(m));
-    const [moduleWorker, canvasWebp] = await Promise.all([
-      Promise.resolve(testModuleWorker()),
-      testCanvasWebp(),
-      probeMediabunny(),
-    ]);
-    caps.moduleWorker = moduleWorker;
-    caps.canvasWebp = canvasWebp;
+    // 画像変換の判定は mediabunny（CDN）の読み込みを待たずに反映する
+    caps.moduleWorker = testModuleWorker();
+    const media = probeMediabunny();
+    caps.canvasWebp = await testCanvasWebp();
+    await media;
     caps.ready = true;
     return caps;
   })();

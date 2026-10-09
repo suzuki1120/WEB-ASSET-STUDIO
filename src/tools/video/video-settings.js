@@ -14,7 +14,6 @@ export const DEFAULTS = {
     bitrate: 4000000,
   },
   audio: { mode: 'keep', codec: 'auto', bitrate: 128000 },
-  trim: { start: 0, end: null },
   poster: { enabled: false, time: 0, format: 'jpeg', quality: 85, width: null },
 };
 

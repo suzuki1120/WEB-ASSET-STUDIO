@@ -201,7 +201,10 @@ function targetSizes(settings, meta) {
     .filter(positive)
     .map((w) => Math.round(Number(w)))
     .filter((w) => (upscale ? w <= bound : w < bound))
-    .map((w) => sizeObj(w, (meta.height * w) / meta.width));
+    // 枠の cover / fill では基準サイズの縦横比に合わせ、全候補を同じ比率にする
+    .map((w) => (base.fit === 'contain'
+      ? sizeObj(w, (meta.height * w) / meta.width)
+      : sizeObj(w, (base.height * w) / base.width, base.fit)));
   if (settings.srcset.includeOriginal) sizes.push(base);
   const byW = new Map(sizes.map((s) => [s.width, s]));
   const list = [...byW.values()].sort((a, b) => a.width - b.width);

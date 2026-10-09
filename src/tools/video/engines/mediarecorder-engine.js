@@ -23,6 +23,24 @@ function drawRect(fit, srcW, srcH, dstW, dstH) {
   return [(dstW - w) / 2, (dstH - h) / 2, w, h];
 }
 
+/** duration が Infinity の動画の長さを、末尾へシークして求める。取得できなければ 0。 */
+function probeDuration(video) {
+  return new Promise((resolve) => {
+    const done = () => {
+      video.ondurationchange = null;
+      video.onseeked = null;
+      clearTimeout(timer);
+      const d = Number.isFinite(video.duration) ? video.duration : 0;
+      video.currentTime = 0;
+      resolve(d);
+    };
+    const timer = setTimeout(done, 5000);
+    video.ondurationchange = () => { if (Number.isFinite(video.duration)) done(); };
+    video.onseeked = done;
+    video.currentTime = Number.MAX_SAFE_INTEGER;
+  });
+}
+
 export async function convert(file, settings, { onProgress, signal } = {}) {
   if (signal?.aborted) throw abortError();
   const container = settings.container === 'mp4' ? 'mp4' : 'webm';
@@ -59,7 +77,9 @@ export async function convert(file, settings, { onProgress, signal } = {}) {
     const ctx2d = canvas.getContext('2d', { alpha: false });
     const rect = drawRect(fit, srcW, srcH, size.width, size.height);
 
-    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    // MediaRecorder 製の WebM などは duration が Infinity になるため、末尾へシークして実際の長さを得る
+    let duration = Number.isFinite(video.duration) ? video.duration : 0;
+    if (!duration && video.duration === Infinity) duration = await probeDuration(video);
     const start = Math.max(0, Number(settings.trim?.start) || 0);
     const endSetting = settings.trim?.end;
     const end = endSetting != null && endSetting > start ? Math.min(endSetting, duration || endSetting) : duration;
@@ -104,6 +124,8 @@ export async function convert(file, settings, { onProgress, signal } = {}) {
       };
       signal?.addEventListener('abort', onAbort, { once: true });
     });
+    // 準備中（リスナー登録前）に中止された場合も止める
+    if (signal?.aborted) throw abortError();
 
     let finished = false;
     const finish = () => {
@@ -116,7 +138,7 @@ export async function convert(file, settings, { onProgress, signal } = {}) {
     const draw = () => {
       ctx2d.drawImage(video, rect[0], rect[1], rect[2], rect[3]);
       onProgress?.(Math.max(0, Math.min(1, (video.currentTime - start) / span)));
-      if (video.ended || video.currentTime >= end) finish();
+      if (video.ended || (end > 0 && video.currentTime >= end)) finish();
       else raf = requestAnimationFrame(draw);
     };
     video.onended = finish;

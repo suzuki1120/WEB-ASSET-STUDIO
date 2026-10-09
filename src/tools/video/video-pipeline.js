@@ -1,6 +1,6 @@
 // 動画キューの逐次変換パイプライン。
 import { createUrl } from '../../lib/objecturl.js';
-import { stripExt } from '../../lib/naming.js';
+import { dedupeNames, stripExt } from '../../lib/naming.js';
 import { toast } from '../../ui/components.js';
 import { constrainVideoSettings, resolveTargetSize } from './video-settings.js';
 import { extractPoster } from './poster.js';
@@ -41,6 +41,12 @@ export function createVideoPipeline({ store, caps }) {
   let running = false;
   let engineName = null;
 
+  /** ほかの item の出力名と重ならないファイル名にする（ZIP とコードで同じ名前を使うため）。 */
+  function uniqueFilename(itemId, name) {
+    const used = store.items().filter((it) => it.id !== itemId).flatMap((it) => it.outputs.map((o) => o.filename));
+    return dedupeNames([...used, name]).at(-1);
+  }
+
   function convertItem(item, settings, signal) {
     return convertWithFallback(item.file, settings, {
       onProgress: (p) => store.update(item.id, { progress: p }),
@@ -70,7 +76,12 @@ export function createVideoPipeline({ store, caps }) {
         store.update(item.id, { status: 'processing', progress: 0, error: null, stale: false, thumbUrl });
         try {
           const meta = item.meta ?? {};
-          const { blob, ext, warnings: engineWarnings } = await convertItem(item, settings, signal);
+          // トリムは動画ごとの設定（item.trim）を使う
+          const trim = store.get(item.id)?.trim ?? { start: 0, end: null };
+          const itemSettings = { ...settings, trim };
+          const { blob, ext, warnings: engineWarnings } = await convertItem(item, itemSettings, signal);
+          // 変換中に削除された item には出力を登録しない（URL が解放されずに残るため）
+          if (!store.get(item.id)) continue;
           for (const w of engineWarnings ?? []) {
             if (!seen.has(w)) { seen.add(w); toast(w, { tone: 'warning', duration: 5000 }); }
           }
@@ -87,13 +98,19 @@ export function createVideoPipeline({ store, caps }) {
             blob,
             bytes: blob.size,
             url: createUrl(blob, item.id),
-            filename: `${stripExt(item.name)}.${ext}`,
+            filename: uniqueFilename(item.id, `${stripExt(item.name)}.${ext}`),
           });
 
           if (settings.poster.enabled) {
             try {
               const p = settings.poster;
-              const poster = await extractPoster(item.file, { time: p.time, width: p.width, format: p.format, quality: p.quality, caps });
+              // ポスターの時刻はトリムの開始位置からの秒数。出力に含まれる範囲に収める
+              const start = Number(trim.start) || 0;
+              let time = start + (Number(p.time) || 0);
+              if (trim.end != null && trim.end > start) time = Math.min(time, Math.max(start, trim.end - 0.05));
+              if (meta.duration > 0) time = Math.min(time, Math.max(0, meta.duration - 0.05));
+              const poster = await extractPoster(item.file, { time, width: p.width, format: p.format, quality: p.quality, caps });
+              if (!store.get(item.id)) continue;
               store.addOutput(item.id, {
                 kind: 'poster',
                 label: 'ポスター',
@@ -103,7 +120,7 @@ export function createVideoPipeline({ store, caps }) {
                 blob: poster.blob,
                 bytes: poster.blob.size,
                 url: createUrl(poster.blob, item.id),
-                filename: `${stripExt(item.name)}-poster.${poster.ext}`,
+                filename: uniqueFilename(item.id, `${stripExt(item.name)}-poster.${poster.ext}`),
               });
             } catch (err) {
               toast(`ポスター画像を作れませんでした（${item.name}）: ${err.message}`, { tone: 'warning' });
@@ -117,6 +134,7 @@ export function createVideoPipeline({ store, caps }) {
             result.cancelled = true;
             break;
           }
+          if (!store.get(item.id)) continue;
           console.error('[video] 変換エラー', err);
           store.update(item.id, { status: 'error', error: err?.message ?? String(err) });
           toast(`${item.name}: ${err?.message ?? '変換に失敗しました'}`, { tone: 'danger', duration: 6000 });
