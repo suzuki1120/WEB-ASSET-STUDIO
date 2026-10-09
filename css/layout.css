@@ -1,0 +1,219 @@
+/*
+ * App shell.
+ * >=1280 : 240 / 1fr / 320
+ * 900-1279: 64px icon rail / 1fr / 320
+ * <=899  : single column. .workspace は display:contents にして
+ *          topbar → 設定トグル(.panel-toggle) → .panel → .work の順に並べ替える (order)。
+ *          右パネルは折りたたみブロック。main.js が作る全幅トグルボタンで
+ *          .panel.is-open を切り替える（既定は閉。開くと max-height 50dvh でスクロール、
+ *          状態は localStorage 'was.panel.open' に保存）。>=900 ではトグルを隠し常時表示。
+ *          ページ全体は文書スクロール、サイドバーは上端に sticky。
+ * <600   : .actionbar を画面下に固定。
+ */
+.app {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 320px;
+  height: 100dvh;
+  min-height: 0;
+}
+.app.no-aside { grid-template-columns: 240px minmax(0, 1fr); }
+.app.no-aside .panel { display: none; }
+
+/* ---------- Sidebar ---------- */
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-width: 0;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.brand { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-5) var(--space-4) var(--space-4); }
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: var(--radius-s);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+.brand-name { font-size: var(--text-md); font-weight: 600; white-space: nowrap; }
+.brand-version { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-2); padding: 0 var(--space-1); border: 1px solid var(--border); border-radius: var(--radius-s); }
+
+.nav { flex: 1; padding: var(--space-2) var(--space-2); display: flex; flex-direction: column; gap: var(--space-4); }
+.nav-group { display: flex; flex-direction: column; gap: var(--space-1); }
+.nav-list { display: flex; flex-direction: column; gap: 2px; }
+.nav-group-title {
+  padding: 0 var(--space-2);
+  margin-bottom: var(--space-1);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--fg-2);
+}
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-m);
+  color: var(--fg-1);
+  font-size: var(--text-md);
+  white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.nav-item .icon { width: 16px; height: 16px; }
+.nav-item:hover { background: var(--bg-2); color: var(--fg-0); }
+.nav-item:active { transform: translateY(1px); }
+.nav-item.is-active, .nav-item[aria-current="page"] { background: var(--accent-soft); color: var(--fg-0); }
+.nav-item.is-active::before, .nav-item[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+.nav-item.is-active .icon, .nav-item[aria-current="page"] .icon { color: var(--accent); }
+
+.sidebar-footer { padding: var(--space-3) var(--space-2) var(--space-4); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: var(--space-2); }
+.side-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-m);
+  background: transparent;
+  color: var(--fg-1);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.side-btn .icon { width: 16px; height: 16px; }
+.side-btn:hover { background: var(--bg-2); color: var(--fg-0); }
+.side-btn:active { transform: translateY(1px); }
+.cap-status { padding: 0 var(--space-3); font-size: var(--text-xs); color: var(--fg-2); line-height: 1.5; overflow-wrap: anywhere; }
+
+/* ---------- Workspace / Panel ---------- */
+.workspace { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: clip; }
+.topbar { padding: var(--space-5) var(--space-6) var(--space-4); border-bottom: 1px solid var(--border); }
+.topbar h1 { font-size: var(--text-xl); }
+.topbar p { margin-top: var(--space-1); color: var(--fg-1); font-size: var(--text-sm); }
+.work { padding: var(--space-6); max-width: 1100px; min-width: 0; }
+
+.panel { min-width: 0; min-height: 0; background: var(--bg-1); border-left: 1px solid var(--border); overflow-y: auto; overflow-x: clip; }
+.panel:empty { display: none; }
+.panel-toggle { display: none; }
+
+/* ---------- <=1279: icon rail ---------- */
+@media (max-width: 1279px) {
+  .app { grid-template-columns: 64px minmax(0, 1fr) 320px; }
+  .app.no-aside { grid-template-columns: 64px minmax(0, 1fr); }
+  .brand { justify-content: center; padding: var(--space-4) 0; }
+  .brand-name, .brand-version, .nav-group-title, .nav-label, .side-btn-label, .cap-status { display: none; }
+  .nav { padding: var(--space-2); gap: var(--space-2); align-items: stretch; }
+  .nav-group + .nav-group { border-top: 1px solid var(--border); padding-top: var(--space-2); }
+  .nav-item, .side-btn { justify-content: center; padding: 0; }
+  .nav-item { min-height: 40px; }
+  .sidebar-footer { padding: var(--space-2); align-items: stretch; }
+}
+
+/* ---------- <=899: single column ---------- */
+@media (max-width: 899px) {
+  .app, .app.no-aside { display: flex; flex-direction: column; height: auto; min-height: 100dvh; }
+  .workspace { display: contents; }
+
+  .sidebar {
+    order: 0;
+    z-index: 20;
+    flex-direction: row;
+    align-items: center;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .sidebar::-webkit-scrollbar { display: none; }
+  .brand { padding: 0 var(--space-3); flex: none; }
+  .nav { flex: 1 0 auto; flex-direction: row; align-items: center; gap: var(--space-2); padding: var(--space-2); }
+  .nav-group { flex-direction: row; align-items: center; gap: var(--space-2); }
+  .nav-group + .nav-group { border-top: 0; padding-top: 0; border-left: 1px solid var(--border); padding-left: var(--space-2); }
+  .nav-list { flex-direction: row; gap: var(--space-1); }
+  .nav-item { min-height: 36px; padding: 0 var(--space-3); gap: var(--space-2); }
+  .nav-label { display: inline; font-size: var(--text-sm); }
+  .nav-item.is-active::before, .nav-item[aria-current="page"]::before { left: 8px; right: 8px; top: auto; bottom: 0; width: auto; height: 2px; }
+  .sidebar-footer { flex: none; flex-direction: row; border-top: 0; border-left: 1px solid var(--border); padding: var(--space-2); }
+  .side-btn { width: 36px; min-height: 36px; justify-content: center; padding: 0; }
+  .cap-status { display: none; }
+
+  .topbar { order: 1; padding: var(--space-4); }
+  .panel-toggle {
+    order: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: 44px;
+    padding: 0 var(--space-4);
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--bg-1);
+    color: var(--fg-1);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-align: left;
+    cursor: pointer;
+  }
+  .panel-toggle:hover { background: var(--bg-2); color: var(--fg-0); }
+  .panel-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .panel-toggle .icon { width: 16px; height: 16px; flex: none; transition: transform var(--dur-fast) var(--ease-out); }
+  .panel-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
+  .app.no-aside .panel-toggle, .panel-toggle[hidden] { display: none; }
+  .panel {
+    order: 2;
+    display: none;
+    border-left: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel.is-open { display: block; max-height: 50dvh; overflow-y: auto; }
+  .panel:empty { display: none; }
+  .app.no-aside .panel { display: none; }
+  .work { order: 3; padding: var(--space-4); max-width: none; }
+}
+
+/* ---------- <600: fixed action bar ---------- */
+@media (max-width: 599px) {
+  .work { padding: var(--space-4) var(--space-4) calc(var(--space-4)); }
+  .work:has(.actionbar) { padding-bottom: 200px; }
+  .app .actionbar, .app .actionbar.is-fixed {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    margin: 0;
+    border-radius: 0;
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  }
+  #toast-root { bottom: 200px; left: var(--space-4); align-items: stretch; }
+}

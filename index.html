@@ -1,192 +1,87 @@
 <!DOCTYPE html>
 <html lang="ja">
-
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Web Asset Studio | Px / WebP / WebM Converter</title>
-  <meta name="description" content="Px計算、画像WebP変換、動画WebM変換を1つに統合した、フロントエンド開発のためのオールインワン・アセットスタジオです。">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web Asset Studio</title>
+  <meta name="description" content="px から % / vw への換算、アスペクト比、clamp() の算出と、画像（WebP / AVIF / JPEG / PNG）・動画（WebM / MP4）の変換をブラウザ内で行うフロントエンド開発者向けツールです。ファイルは外部に送信されません。">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Outfit:wght@500;700&display=swap"
-    rel="stylesheet">
-  <link rel="stylesheet" href="index.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/tools.css">
 </head>
-
 <body>
-  <div class="bg-vignette"></div>
-  <div class="container">
-    <header>
-      <h1>Web Asset <span class="accent">Studio</span></h1>
-      <p class="subtitle" id="subtitle">親要素とターゲットの値を入力して即座に変換</p>
-    </header>
+  <!-- SVG sprite: <use href="#i-name"> で参照する -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-percent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></symbol>
+      <symbol id="i-vw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><path d="M7 10h10M7 10l2-2M7 10l2 2M17 10l-2-2M17 10l-2 2"/></symbol>
+      <symbol id="i-ratio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10V9a1 1 0 0 1 1-1h1M17 14v1a1 1 0 0 1-1 1h-1"/></symbol>
+      <symbol id="i-clamp" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h8M18 6h2M4 12h2M12 12h8M4 18h8M18 18h2"/><circle cx="15" cy="6" r="2.5"/><circle cx="9" cy="12" r="2.5"/><circle cx="15" cy="18" r="2.5"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M21 16l-5-5-9 9"/></symbol>
+      <symbol id="i-video" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></symbol>
+      <symbol id="i-zip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M9 7V4h6v3"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16h.01"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4.5l12 7.5-12 7.5z"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"/></symbol>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+    </defs>
+  </svg>
 
-    <main class="glass-card">
-      <nav class="tabs">
-        <button class="tab-btn active" data-mode="percentage">% (Percentage)</button>
-        <button class="tab-btn" data-mode="vw">vw (Viewport Width)</button>
-        <button class="tab-btn" data-mode="ratio">Aspect Ratio</button>
-        <button class="tab-btn" data-mode="clamp">Fluid clamp()</button>
-        <button class="tab-btn" data-mode="webp">Image to WebP</button>
-        <button class="tab-btn" data-mode="video">Video to WebM</button>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">W</span>
+        <span class="brand-name">Web Asset Studio</span>
+        <span class="brand-version">v2</span>
+      </div>
+      <nav class="nav" aria-label="ツール">
+        <div class="nav-group" data-group="calc">
+          <div class="nav-group-title">計算</div>
+          <div class="nav-list" id="nav-calc"></div>
+        </div>
+        <div class="nav-group" data-group="convert">
+          <div class="nav-group-title">変換</div>
+          <div class="nav-list" id="nav-convert"></div>
+        </div>
       </nav>
-
-      <div id="calc-panel">
-        <div class="input-group">
-          <label for="parent-px" id="parent-label">親要素のサイズ (px)</label>
-          <div class="input-wrapper">
-            <input type="number" id="parent-px" placeholder="例: 1000" min="1" step="any">
-            <span class="unit">px</span>
-          </div>
-        </div>
-
-        <div class="divider">
-          <div class="line"></div>
-          <div class="icon">/</div>
-          <div class="line"></div>
-        </div>
-
-        <div class="input-group">
-          <label for="target-px">ターゲットのサイズ (px)</label>
-          <div class="input-wrapper">
-            <input type="number" id="target-px" placeholder="例: 500" min="0" step="any">
-            <span class="unit">px</span>
-          </div>
-        </div>
-
-        <div class="result-area">
-          <div class="result-label">変換結果</div>
-          <div class="result-display">
-            <span id="result-value">0</span><span class="percent" id="result-unit">%</span>
-          </div>
-          <div class="copy-hint" id="copy-btn">クリックしてコピー</div>
-        </div>
+      <div class="sidebar-footer">
+        <button class="side-btn" id="theme-toggle" type="button" aria-label="テーマを切り替え" title="テーマを切り替え">
+          <svg class="icon" width="16" height="16" aria-hidden="true"><use href="#i-sun"></use></svg>
+          <span class="side-btn-label">テーマ</span>
+        </button>
+        <p class="cap-status mono" id="cap-status">機能を確認中</p>
       </div>
+    </aside>
 
-      <div id="clamp-panel" class="hidden">
-        <div class="input-grid">
-          <div class="input-group">
-            <label>最小サイズ (Min px)</label>
-            <div class="input-wrapper">
-              <input type="number" id="clamp-min-size" placeholder="16" step="any">
-              <span class="unit">px</span>
-            </div>
-          </div>
-          <div class="input-group">
-            <label>最大サイズ (Max px)</label>
-            <div class="input-wrapper">
-              <input type="number" id="clamp-max-size" placeholder="24" step="any">
-              <span class="unit">px</span>
-            </div>
-          </div>
-          <div class="input-group">
-            <label>最小画面幅 (Min Viewport px)</label>
-            <div class="input-wrapper">
-              <input type="number" id="clamp-min-vw" placeholder="320" step="any">
-              <span class="unit">px</span>
-            </div>
-          </div>
-          <div class="input-group">
-            <label>最大画面幅 (Max Viewport px)</label>
-            <div class="input-wrapper">
-              <input type="number" id="clamp-max-vw" placeholder="1280" step="any">
-              <span class="unit">px</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="result-area" id="clamp-result-area">
-          <div class="result-label">clamp() 関数</div>
-          <div class="result-code" id="clamp-value">値を選択してください</div>
-          <div class="copy-hint" id="clamp-copy-btn">クリックしてコピー</div>
-        </div>
-      </div>
-
-      <div id="image-panel" class="hidden">
-        <div class="settings-group">
-          <div class="setting-item">
-            <label>品質 (Quality)</label>
-            <div class="range-wrapper">
-              <input type="range" id="quality-range" min="0" max="100" value="80">
-              <span id="quality-val">80%</span>
-            </div>
-          </div>
-          <div class="setting-item flex-row">
-            <label for="lossless-check">ロスレス (Lossless)</label>
-            <input type="checkbox" id="lossless-check" class="ios-switch-input">
-            <label for="lossless-check" class="ios-switch-label"></label>
-          </div>
-        </div>
-
-        <div id="drop-zone" class="drop-zone">
-          <div class="drop-icon">📁</div>
-          <p>JPEG / PNG ファイルをドロップ</p>
-          <span class="drop-subtext">または クリックして選択</span>
-          <input type="file" id="file-input" multiple accept="image/jpeg,image/png" hidden>
-        </div>
-
-        <div id="preview-section" class="hidden">
-          <h3 class="section-title">変換待ちファイル</h3>
-          <div id="file-list" class="file-list">
-            <!-- プレビューアイテムがここに追加される -->
-          </div>
-          <button id="start-conversion" class="primary-btn">変換を開始する</button>
-        </div>
-
-        <button id="download-all" class="primary-btn hidden">全ファイルをダウンロード</button>
-      </div>
-
-      <div id="video-panel" class="hidden">
-        <div class="settings-group">
-          <div class="setting-item">
-            <label>ビットレート (Bitrate / Quality)</label>
-            <div class="range-wrapper">
-              <input type="range" id="video-bitrate-range" min="1" max="100" value="50">
-              <span id="video-bitrate-val">10 Mbps</span>
-            </div>
-          </div>
-          <div class="setting-item flex-row">
-            <label for="video-lossless-check">ロスレス (Lossless / High BPS)</label>
-            <input type="checkbox" id="video-lossless-check" class="ios-switch-input">
-            <label for="video-lossless-check" class="ios-switch-label"></label>
-          </div>
-          <div class="setting-item flex-row">
-            <label for="video-mute-check">音声なし (Mute Audio)</label>
-            <input type="checkbox" id="video-mute-check" class="ios-switch-input">
-            <label for="video-mute-check" class="ios-switch-label"></label>
-          </div>
-        </div>
-
-        <div id="video-drop-zone" class="drop-zone">
-          <div class="drop-icon">🎬</div>
-          <p>MP4 ファイルをドロップ</p>
-          <span class="drop-subtext">または クリックして選択</span>
-          <input type="file" id="video-file-input" accept="video/mp4" hidden>
-        </div>
-
-        <div id="video-preview-section" class="hidden">
-          <h3 class="section-title">プレビュー & 変換</h3>
-          <div class="video-preview-container">
-            <video id="convert-video" controls muted></video>
-            <div class="convert-progress-overlay hidden" id="convert-overlay">
-              <div class="spinner"></div>
-              <p>変換中... (<span id="convert-percent">0</span>%)</p>
-            </div>
-          </div>
-          <button id="start-video-conversion" class="primary-btn">WebMに変換して保存</button>
-          <div id="video-result-link" class="hidden">
-            <a href="#" id="video-download-btn" class="primary-btn"
-              style="background: var(--accent-color)">WebMをダウンロード</a>
-          </div>
-        </div>
-      </div>
+    <main class="workspace">
+      <header class="topbar">
+        <h1 id="tool-title"></h1>
+        <p id="tool-subtitle"></p>
+      </header>
+      <div class="work" id="tool-main"></div>
     </main>
 
-    <footer>
-      <p>&copy; 2026 Px & Image Converter. Crafted with Care.</p>
-    </footer>
+    <aside class="panel" id="tool-aside"></aside>
   </div>
-  <script src="script.js"></script>
-</body>
 
+  <div id="toast-root" aria-live="polite"></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
 </html>
