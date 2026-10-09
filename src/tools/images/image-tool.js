@@ -16,6 +16,7 @@ import { createImagePipeline } from './image-pipeline.js';
 import { buildPictureSnippet } from './snippets.js';
 import { totals } from './stats.js';
 import { buildSettingsSections } from './settings-panel.js';
+import { openImagePreview } from './image-preview.js';
 
 const THUMB_SIZE = 96;
 const DECODE_ERROR = '画像を読み込めませんでした';
@@ -27,6 +28,7 @@ export function createTool(ctx) {
   const pipeline = createImagePipeline({ store, caps });
   let settings = loadSettings();
   let active = false;
+  let preview = null; // 開いている圧縮プレビュー
 
   /* ---------- サムネイル ---------- */
   // サムネイルの URL は item.id と別の所有者で管理する（再変換の resetForRerun で解放されないように）
@@ -217,6 +219,18 @@ export function createTool(ctx) {
     onRemove: (item) => store.remove(item.id),
     onRerun: (item) => runItems([item]),
     onThumb: requestThumb,
+    onPreview: (item) => {
+      preview = openImagePreview({
+        item,
+        caps,
+        getSettings: () => settings,
+        onSettingsChange: () => {
+          onSettingsChange();
+          renderAside();
+        },
+        onClose: () => { preview = null; },
+      });
+    },
   });
 
   const bar = createActionBar({
@@ -278,6 +292,7 @@ export function createTool(ctx) {
   /* ---------- キーボード ---------- */
   function onKeydown(e) {
     if (!(e.metaKey || e.ctrlKey) || e.key !== 'Enter' || e.isComposing) return;
+    if (document.querySelector('dialog[open]')) return;
     e.preventDefault();
     runSelected();
   }
@@ -298,6 +313,7 @@ export function createTool(ctx) {
     },
     deactivate() {
       active = false;
+      preview?.close();
       document.removeEventListener('keydown', onKeydown);
     },
   };

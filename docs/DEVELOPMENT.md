@@ -58,7 +58,7 @@ src/lib/
   objecturl.js          Object URL の登録と解放（所有者単位）
   clipboard.js          コピーとトースト通知
   format.js             バイト数、時間、削減率の整形
-src/ui/                 components（ボタン等）、dropzone、filegrid、actionbar
+src/ui/                 components（ボタン、モーダル等）、dropzone、filegrid、actionbar、compare（変換前後の比較ビュー）
 src/tools/calculators/  calc-math.js（計算式）、calculators.js（4ツールの UI）
 src/tools/images/       画像変換（下記）
 src/tools/video/        動画変換（下記）
@@ -103,6 +103,7 @@ dropzone → store → (サムネイル生成) ───────────
 - Worker が使えない環境（module Worker か OffscreenCanvas が使えない）では、メインスレッドで `processJob` を直接呼びます。この場合は1枚ずつ順に処理し、進捗のたびに UI へ処理を譲ります（`image-pipeline.js` の `runInline`）。
 - 出力サイズと形式の組み合わせ（バリアント）は、`image-settings.js` の `expandVariants()` が決めます。ファイル名は `image-pipeline.js` の `outputFilename()` が、`naming.js` の `buildName()` で作ります。
 - `<picture>` コードは `snippets.js`、集計は `stats.js` が担当します。
+- 圧縮プレビュー（`image-preview.js`）は、変換キューとは別に 1 形式・最大サイズだけをエンコードします。Worker は専用のプール（1 本）を使い、品質を動かして新しい依頼が来たら、実行中の Worker を止めて作り直します（WASM のエンコードは途中で止められないためです）。結果は store に入れず、Object URL はプレビューを閉じるときに解放します。
 
 ### 動画変換
 
@@ -126,6 +127,7 @@ dropzone → store → probe.probeVideo（長さ・寸法・コーデック等�
 - エンジンは `convert(file, settings, { onProgress, signal, caps })` を実装し、`{ blob, mime, ext, warnings }` を返します（契約は ARCHITECTURE.md を参照）。
 - 中止は `AbortController` で伝えます。エンジンは `name: 'AbortError'` のエラーを投げ、パイプラインはそれを中止として扱います。
 - `poster.js` は、mediabunny の `CanvasSink` でフレームを取り出し、失敗したら `<video>` 要素で代替します。静止画の書き出しは画像側の `selectEncoder` を再利用します。
+- 圧縮プレビュー（`video-preview.js`）は、設定の `trim` を「再生位置から N 秒」に差し替えて `convertWithFallback()` で変換します。比較表示では、変換後の動画を基準に、元の動画を開始位置の分だけずらして同期再生します（ずれが 0.15 秒を超えたら合わせ直します）。
 - mediarecorder-engine は、`video` 要素を再生しながら canvas に描画し、`MediaRecorder` で録画します。変換には再生時間と同じ時間がかかります。音声コーデックと音声ビットレートの指定は反映されません。
 
 ## 5. ツールの追加手順
@@ -292,6 +294,9 @@ caps.moduleWorker = false;   // 画像をメインスレッドで変換する分
 - [ ] 「コードをコピー」で、複数形式のときは `<picture>`、1形式のときは `<img>` になる。パスの接頭辞、sizes、lazy が反映される。
 - [ ] 設定変更後、完了済みカードに「設定が変更されました」が出る。更新アイコンで1枚だけ再変換できる。
 - [ ] 変換中のキャンセルで、処理待ちが「中止」になる。
+- [ ] カードの圧縮プレビューで、元画像と変換後が重なって表示され、境界線をドラッグ・矢印キーで動かせる。形式の切替、品質の変更で変換し直され、サイズと削減率が更新される。100% と 200% でスクロールできる。
+- [ ] 圧縮プレビューで変えた品質が、閉じた後の設定パネルに反映される。何も変えずに閉じた場合は、完了済みカードに「設定が変更されました」が出ない。
+- [ ] 圧縮プレビューを開いたまま Cmd/Ctrl + 数字でツールを切り替えると、プレビューが閉じる。
 - [ ] 壊れた画像（テキストを `.jpg` にしたもの）でエラー表示が出て、ほかの画像は変換される。
 - [ ] ZIP をダウンロードして展開でき、中身が選択した画像の出力と一致する。「フォルダに保存」は Chrome で動作する。
 - [ ] プリセット3種と「既定に戻す」が動く。
@@ -308,6 +313,7 @@ caps.moduleWorker = false;   // 画像をメインスレッドで変換する分
 - [ ] トリム：「現在位置をセット」、バーの表示、終了位置が開始位置以前のときのエラーが動く。
 - [ ] ポスター画像（JPEG、WebP、AVIF、時刻、幅）が書き出される。`<video>` タグに `poster` が入る。
 - [ ] 変換中のキャンセルが効く。
+- [ ] 圧縮プレビュー：再生位置から指定秒数で作成され、元の動画と同期して再生される。末尾付近やトリム範囲の外では、範囲内に収まるように開始位置がずれる。推定サイズが出る。設定変更で「設定が変更されました」が出て、「プレビューを更新」で作り直せる。作成中の「中止」が効く。
 - [ ] ブラウザが未対応のコーデックは、選択肢が無効になり、設定パネル下部に警告が出る。
 - [ ] `caps.webcodecs = false` で、「リアルタイム変換」の通知が出て、MediaRecorder で変換できる。
 - [ ] ZIP 内のファイルが、同名でも重複しない。

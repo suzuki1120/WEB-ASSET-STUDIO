@@ -146,6 +146,7 @@ badge(text, tone:'neutral'|'info'|'success'|'warning'|'danger')
 progressBar(value0to1) → { el, set(v) }
 toast(message, { tone?, duration?=3000 })
 confirmDialog({ title, message, confirmLabel, danger? }) → Promise<boolean>   // <dialog>
+modal({ title, children, footer?, className?, onClose? }) → { dlg, close() }    // 閉じると要素を破棄
 section({ title, open?=true, children }) → <details class="panel-section">
 notice(message, tone) → .notice
 ```
@@ -158,8 +159,24 @@ createDropzone({ accept, multiple:true, label, sublabel, onFiles(files:File[]), 
 
 ## `src/ui/filegrid.js`
 ```js
-createFileGrid(store, { renderOutputs(item) → Node|null, renderMeta(item) → string, onRemove(item), onRerun?(item), onThumb?(item) }) → { el }
+createFileGrid(store, { renderOutputs(item) → Node|null, renderMeta(item) → string, onRemove(item), onRerun?(item), onThumb?(item), onPreview?(item) }) → { el }
 ```
+- `onPreview` を渡すと、カードに圧縮プレビューのボタン（`i-compare`）が出る（エラー状態では隠す）。
+
+## `src/ui/compare.js`
+```js
+createCompareView() → {
+  el, setBefore(node, { fit:'contain'|'cover'|'fill' }), setAfter(node), setSize(w, h),
+  setZoom('fit'|'1'|'2'), setLabels(before, after), setOverlay({ text, spinner?, tone? } | null), destroy()
+}
+```
+- 左が元、右が変換後。変換後のレイヤーを `clip-path` で切り、境界線（role=slider）をドラッグ・矢印キーで動かす。
+- `fit` は等倍上限で枠に収める（ResizeObserver）。`1` / `2` はピクセル寸法の 1 倍・2 倍でスクロール表示（2 倍は画像を pixelated）。
+- 中身は `img` / `video` のどちらでもよい。表示枠の高さは CSS 変数 `--compare-height` で変えられる。
+
+## 圧縮プレビュー
+- 画像: `images/image-preview.js` の `openImagePreview({ item, caps, getSettings, onSettingsChange, onClose? })`。選んだ形式だけを有効にした設定で `expandVariants()` の最大サイズを 1 つエンコードする。Worker が使えれば専用プール（size 1）で実行し、新しい依頼が来たら実行中の Worker を terminate して作り直す。品質と「出力に含める」は settings を直接書き換え、閉じるときに 1 回だけ `onSettingsChange` を呼ぶ。ツールの `deactivate()` で閉じる。
+- 動画: `video/video-preview.js` の `createSamplePreview({ caps, getItem, getSettings, getPlayhead, getDuration })` → `{ el, markStale(), reset(), pause() }`。`constrainVideoSettings()` 後の設定の `trim` を再生位置から N 秒に差し替え、`video-pipeline.js` の `convertWithFallback()` で変換する。推定サイズ = サンプルのバイト数 ÷ サンプル秒数 × トリム範囲の秒数。
 - item.id をキーに `data-id` 付きカードを差分更新。チェックボックス（選択）、サムネ、名前、メタ、状態バッジ、進捗、出力行、削除ボタン。
 
 ## `src/ui/actionbar.js`
@@ -216,6 +233,7 @@ CODEC_MATRIX = { webm:{video:['vp9','vp8','av1'], audio:['opus']}, mp4:{video:['
 constrainVideoSettings(settings, caps) → { settings, warnings[] }
 ```
 エンジン: `convert(file, settings, { onProgress(p), signal }) → Promise<{ blob, mime, ext, warnings[] }>`。
+`video-pipeline.js` が `convertWithFallback(file, settings, { onProgress, signal, caps, onEngine? })`（エンジン選択と MediaRecorder への切り替え）と `preferredEngine(caps)` を export する。
 
 ## CSS トークン名（`css/tokens.css`）
 `--bg-0 --bg-1 --bg-2 --bg-3 --fg-0 --fg-1 --fg-2 --border --border-strong --accent --accent-fg --accent-soft --success --warning --danger --radius-s --radius-m --radius-l --font-sans --font-mono --shadow-1 --space-1..8(4pt) --text-xs..2xl --ease-out --ease-in-out --dur-fast --dur-base`

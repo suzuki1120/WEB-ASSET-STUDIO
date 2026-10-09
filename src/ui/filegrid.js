@@ -13,7 +13,7 @@ const STATUS = {
  * ファイルカードのグリッド。store を購読し、data-id をキーに差分更新する。
  * 返り値の destroy() で購読を解除する。
  */
-export function createFileGrid(store, { renderOutputs, renderMeta, onRemove, onRerun, onThumb } = {}) {
+export function createFileGrid(store, { renderOutputs, renderMeta, onRemove, onRerun, onThumb, onPreview } = {}) {
   const el = h('div', { class: 'filegrid' });
   const cards = new Map(); // id -> refs
 
@@ -27,6 +27,8 @@ export function createFileGrid(store, { renderOutputs, renderMeta, onRemove, onR
     const status = badge('', 'neutral');
     const stale = badge('設定が変更されました', 'warning');
     stale.classList.add('hidden');
+    const previewBtn = onPreview ? button({ icon: 'compare', variant: 'ghost', size: 'sm', title: '圧縮プレビュー', onClick: () => onPreview(store.get(item.id) || item) }) : null;
+    previewBtn?.setAttribute('aria-label', `${item.name} の圧縮プレビュー`);
     const rerunBtn = onRerun ? button({ icon: 'refresh', variant: 'ghost', size: 'sm', title: '再変換', onClick: () => onRerun(store.get(item.id) || item) }) : null;
     rerunBtn?.setAttribute('aria-label', `${item.name} を再変換`);
     const removeBtn = button({ icon: 'trash', variant: 'ghost', size: 'sm', title: '削除', onClick: () => onRemove?.(store.get(item.id) || item) });
@@ -38,12 +40,12 @@ export function createFileGrid(store, { renderOutputs, renderMeta, onRemove, onR
 
     const card = h('article', { class: 'filecard', dataset: { id: item.id } },
       h('div', { class: 'filecard-head' }, sel.el, thumb, h('div', { class: 'filecard-info' }, name, meta)),
-      h('div', { class: 'filecard-status' }, status, stale, h('div', { class: 'filecard-actions' }, rerunBtn, removeBtn)),
+      h('div', { class: 'filecard-status' }, status, stale, h('div', { class: 'filecard-actions' }, previewBtn, rerunBtn, removeBtn)),
       progress.el,
       errorEl,
       outputs,
     );
-    const refs = { card, sel, thumb, meta, status, stale, rerunBtn, progress, errorEl, outputs, thumbUrl: undefined, outSig: null };
+    const refs = { card, sel, thumb, meta, status, stale, previewBtn, rerunBtn, progress, errorEl, outputs, thumbUrl: undefined, outSig: null };
     cards.set(item.id, refs);
     return refs;
   }
@@ -66,6 +68,7 @@ export function createFileGrid(store, { renderOutputs, renderMeta, onRemove, onR
     }
     r.errorEl.classList.toggle('hidden', !(item.status === 'error' && item.error));
     r.errorEl.textContent = item.status === 'error' ? String(item.error || '') : '';
+    if (r.previewBtn) r.previewBtn.classList.toggle('hidden', item.status === 'error');
     if (r.rerunBtn) r.rerunBtn.classList.toggle('hidden', !['done', 'error', 'cancelled'].includes(item.status));
 
     if (r.thumbUrl !== (item.thumbUrl || null)) {

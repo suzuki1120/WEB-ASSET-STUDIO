@@ -143,6 +143,92 @@
 .video-preview video, .video-preview canvas, .video-preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
 .trim-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-3); align-items: end; }
 
+/* ---------- Compare (変換前後の比較) ---------- */
+.compare { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.compare-legend { display: flex; justify-content: space-between; gap: var(--space-3); font-size: var(--text-xs); color: var(--fg-1); }
+.compare-label { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compare-label.is-after { text-align: right; }
+.compare-frame { position: relative; min-width: 0; }
+.compare-viewport {
+  display: grid;
+  height: var(--compare-height, min(62dvh, 640px));
+  overflow: auto;
+  padding: var(--space-2);
+  background-color: var(--bg-2);
+  background-image: conic-gradient(var(--bg-3) 25%, transparent 0 50%, var(--bg-3) 0 75%, transparent 0);
+  background-size: 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+}
+.compare-stage { position: relative; margin: auto; user-select: none; -webkit-user-select: none; }
+.compare-layer { position: absolute; inset: 0; overflow: hidden; }
+.compare-layer > img, .compare-layer > video { display: block; width: 100%; height: 100%; max-width: none; object-fit: fill; }
+.compare-before > img, .compare-before > video { object-fit: var(--compare-fit, contain); }
+.compare-before > video, .compare-after > video { background: #000; }
+.compare.is-zoomed .compare-layer > img { image-rendering: pixelated; }
+.compare-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent-fg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg-0) 60%, transparent);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.compare-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--accent-fg);
+  box-shadow: var(--shadow-1);
+}
+.compare-handle:focus-visible { outline: none; }
+.compare-handle:focus-visible .compare-knob { outline: 2px solid var(--accent); outline-offset: 2px; }
+.compare-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--bg-1) 72%, transparent);
+  border-radius: var(--radius-l);
+  font-size: var(--text-sm);
+  color: var(--fg-0);
+  text-align: center;
+}
+.compare-overlay.is-danger { color: var(--danger); }
+
+/* 画像プレビュー（モーダル） */
+.preview-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--space-5); align-items: start; }
+.preview-side { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
+.preview-controls { display: flex; flex-direction: column; gap: var(--space-4); }
+.preview-controls .segmented { width: 100%; }
+.preview-stats { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2) var(--space-3); margin: 0; font-size: var(--text-xs); }
+.preview-stats dt { color: var(--fg-2); white-space: nowrap; }
+.preview-stats dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--fg-0); text-align: right; overflow-wrap: anywhere; }
+.preview-stats dd.is-good { color: var(--success); }
+.preview-stats dd.is-bad { color: var(--danger); }
+
+/* 動画の圧縮プレビュー */
+.sample-preview { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.sample-head { display: flex; flex-direction: column; gap: var(--space-1); }
+.sample-title { font-size: var(--text-md); }
+.sample-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.sample-body { display: flex; flex-direction: column; gap: var(--space-3); --compare-height: clamp(220px, 50dvh, 520px); }
+.sample-player { display: flex; align-items: center; gap: var(--space-3); }
+.sample-player .range { flex: 1 1 auto; min-width: 0; }
+.sample-time { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--text-xs); color: var(--fg-1); white-space: nowrap; }
+.sample-messages { display: flex; flex-direction: column; gap: var(--space-2); }
+
 /* ---------- Action bar ---------- */
 .actionbar {
   position: sticky;
@@ -173,5 +259,10 @@
   .actionbar-right .btn { flex: 1 1 auto; justify-content: center; }
   .dropzone { padding: var(--space-6) var(--space-4); }
   .trim-row { grid-template-columns: minmax(0, 1fr); }
+  dialog.modal { width: 100vw; max-width: 100vw; max-height: 100dvh; height: 100dvh; border-radius: 0; border-width: 0; }
+}
+@media (max-width: 899px) {
+  .preview-layout { grid-template-columns: minmax(0, 1fr); }
+  .compare-viewport { height: var(--compare-height, min(50dvh, 480px)); }
 }
 @media (min-width: 600px) { .calc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -19,6 +19,7 @@ import {
 } from './video-settings.js';
 import { probeVideo, makeThumbnail } from './probe.js';
 import { createVideoPipeline } from './video-pipeline.js';
+import { createSamplePreview } from './video-preview.js';
 
 const ASSET_PREFIX = '/assets/video/';
 const numOrNull = (input) => {
@@ -67,6 +68,7 @@ export function createTool(ctx) {
   function changed() {
     saveSettings(settings);
     store.markStale();
+    sample.markStale();
     updateDerived();
   }
 
@@ -159,6 +161,14 @@ export function createTool(ctx) {
     changed();
   };
 
+  const sample = createSamplePreview({
+    caps,
+    getItem: () => store.get(previewId),
+    getSettings: () => settings,
+    getPlayhead: () => previewVideo.currentTime || 0,
+    getDuration: () => (Number.isFinite(previewVideo.duration) ? previewVideo.duration : 0),
+  });
+
   const previewBlock = h('div', { class: 'video-block card', style: { display: 'none', padding: 'var(--space-4)' } },
     itemSelectField,
     h('div', { class: 'video-preview' }, previewVideo),
@@ -172,6 +182,7 @@ export function createTool(ctx) {
       trimBar,
       trimText,
     ),
+    sample.el,
   );
 
   function previewDuration() {
@@ -201,6 +212,7 @@ export function createTool(ctx) {
     if (!items.some((i) => i.id === previewId)) previewId = items[0]?.id ?? null;
     const item = store.get(previewId);
     if (!item) {
+      sample.reset();
       previewBlock.style.display = 'none';
       if (previewVideo.dataset.itemId) {
         previewVideo.removeAttribute('src');
@@ -214,6 +226,7 @@ export function createTool(ctx) {
     itemSelect.setOptions(items.map((i) => ({ value: i.id, label: i.name })));
     itemSelect.input.value = item.id;
     if (previewVideo.dataset.itemId !== item.id) {
+      sample.reset();
       if (!previewUrls.has(item.id)) {
         mediaIds.add(item.id);
         previewUrls.set(item.id, createUrl(item.file, mediaOwner(item.id)));
@@ -535,7 +548,7 @@ export function createTool(ctx) {
 
   /* ---------- ショートカット・ライフサイクル ---------- */
   const onKey = (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.isComposing && !document.querySelector('dialog[open]')) {
       e.preventDefault();
       runItems(store.selected().filter((i) => i.status !== 'processing'));
     }
@@ -565,6 +578,7 @@ export function createTool(ctx) {
       active = false;
       document.removeEventListener('keydown', onKey);
       previewVideo.pause();
+      sample.pause();
     },
   };
 }

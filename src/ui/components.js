@@ -233,6 +233,30 @@ export function confirmDialog({ title, message, confirmLabel = 'OK', cancelLabel
   });
 }
 
+/**
+ * 汎用のモーダル。閉じると要素ごと破棄し、onClose を呼ぶ。
+ * @returns {{ dlg: HTMLDialogElement, close: () => void }}
+ */
+export function modal({ title, children, footer, className, onClose } = {}) {
+  const titleId = uid('modal');
+  const dlg = h('dialog', { class: ['modal', className], 'aria-labelledby': titleId });
+  const closeBtn = button({ icon: 'x', variant: 'ghost', size: 'sm', title: '閉じる', onClick: () => dlg.close() });
+  closeBtn.setAttribute('aria-label', '閉じる');
+  dlg.append(
+    h('header', { class: 'modal-head' }, h('h2', { class: 'modal-title', id: titleId }, title), closeBtn),
+    h('div', { class: 'modal-body' }, children),
+    footer ? h('footer', { class: 'modal-foot' }, footer) : null,
+  );
+  dlg.addEventListener('close', () => {
+    dlg.remove();
+    onClose?.();
+  });
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+  document.body.appendChild(dlg);
+  dlg.showModal();
+  return { dlg, close: () => dlg.close() };
+}
+
 export function section({ title, open = true, children } = {}) {
   return h('details', { class: 'panel-section', open: !!open },
     h('summary', null, h('span', null, title), icon('chevron-down', 14)),

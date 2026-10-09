@@ -10,30 +10,44 @@ import * as mediarecorderEngine from './engines/mediarecorder-engine.js';
 const UNSUPPORTED_RE = /codec|encod|unsupported|support|未対応|エンコード|コーデック|WebCodecs/i;
 const isAbort = (err) => err?.name === 'AbortError';
 
+const ENGINES = { mediabunny: mediabunnyEngine, mediarecorder: mediarecorderEngine };
+export const preferredEngine = (caps) => (caps.webcodecs && !caps.mediabunnyError ? 'mediabunny' : 'mediarecorder');
+
+/**
+ * 1 本を変換する。mediabunny が「コーデック未対応」系で失敗したら MediaRecorder で再試行する。
+ * @param {File} file
+ * @param {object} settings constrainVideoSettings 通過後の設定
+ * @param {{onProgress?:(p:number)=>void, signal?:AbortSignal, caps:object, onEngine?:(name:string)=>void}} opts
+ */
+export async function convertWithFallback(file, settings, { onProgress, signal, caps, onEngine } = {}) {
+  const run = (name) => {
+    onEngine?.(name);
+    return ENGINES[name].convert(file, settings, { onProgress, signal, caps });
+  };
+  const first = preferredEngine(caps);
+  try {
+    return await run(first);
+  } catch (err) {
+    if (isAbort(err) || first !== 'mediabunny' || !UNSUPPORTED_RE.test(err?.message ?? '')) throw err;
+    console.warn('[video] mediabunny で変換できず MediaRecorder に切り替えます', err);
+    toast('WebCodecs で変換できなかったため、リアルタイム変換に切り替えます', { tone: 'warning' });
+    onProgress?.(0);
+    return run('mediarecorder');
+  }
+}
+
 export function createVideoPipeline({ store, caps }) {
   let controller = null;
   let running = false;
   let engineName = null;
 
-  const preferred = () => (caps.webcodecs && !caps.mediabunnyError ? 'mediabunny' : 'mediarecorder');
-  const engines = { mediabunny: mediabunnyEngine, mediarecorder: mediarecorderEngine };
-
-  async function convertItem(item, settings, signal) {
-    const onProgress = (p) => store.update(item.id, { progress: p });
-    const run = (name) => {
-      engineName = name;
-      return engines[name].convert(item.file, settings, { onProgress, signal, caps });
-    };
-    const first = preferred();
-    try {
-      return await run(first);
-    } catch (err) {
-      if (isAbort(err) || first !== 'mediabunny' || !UNSUPPORTED_RE.test(err?.message ?? '')) throw err;
-      console.warn('[video] mediabunny で変換できず MediaRecorder に切り替えます', err);
-      toast('WebCodecs で変換できなかったため、リアルタイム変換に切り替えます', { tone: 'warning' });
-      store.update(item.id, { progress: 0 });
-      return run('mediarecorder');
-    }
+  function convertItem(item, settings, signal) {
+    return convertWithFallback(item.file, settings, {
+      onProgress: (p) => store.update(item.id, { progress: p }),
+      signal,
+      caps,
+      onEngine: (name) => { engineName = name; },
+    });
   }
 
   async function run(items, rawSettings) {
@@ -120,6 +134,6 @@ export function createVideoPipeline({ store, caps }) {
     run,
     cancel() { controller?.abort(); },
     isRunning: () => running,
-    currentEngine: () => engineName ?? preferred(),
+    currentEngine: () => engineName ?? preferredEngine(caps),
   };
 }
